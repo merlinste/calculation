@@ -1,0 +1,5 @@
+supplier,invoice_no,invoice_date,currency,line_type,product_sku,product_name,qty,uom,unit_price_net,tax_rate_percent,line_total_net,pack_definition_hint,notes
+Meyer & Horn,2025-08-26-007,2025-08-26,EUR,product,810010,Kaffeebohnen 1kg,120,KG,9.80,7,1176.00,,
+Meyer & Horn,2025-08-26-007,2025-08-26,EUR,surcharge,,,120,KG,0.35,7,42.00,,Energiepauschale
+Meyer & Horn,2025-08-26-007,2025-08-26,EUR,surcharge,,,120,KG,0.12,7,14.40,,RML
+Meyer & Horn,2025-08-26-007,2025-08-26,EUR,shipping,,,1,STUECK,24.00,19,24.00,,Versand
