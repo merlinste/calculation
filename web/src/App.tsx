@@ -1,25 +1,39 @@
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import Nav from "./components/Nav";
-import { useEffect, useState } from "react";
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [initialising, setInitialising] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const targetAfterLogin = useMemo(
+    () => location.pathname + location.search + location.hash,
+    [location.hash, location.pathname, location.search],
+  );
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user ?? null));
+    supabase.auth
+      .getUser()
+      .then(({ data, error }) => {
+        setUser(error ? null : data.user);
+      })
+      .finally(() => setInitialising(false));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  if (initialising) {
+    return null;
+  }
+
   if (!user) {
-    return (
-      <div style={{padding:16}}>
-        <h1>earlybird profit</h1>
-        <p><Link to="/login">Bitte einloggen</Link></p>
-      </div>
-    );
+    return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
   }
 
   const logout = async () => { await supabase.auth.signOut(); navigate("/login"); };
