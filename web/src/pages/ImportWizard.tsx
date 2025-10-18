@@ -23,17 +23,6 @@ const SUPPLIER_OPTIONS = [
   { value: "Max Horn", label: "Max Horn" },
 ];
 
-type MessageState = {
-  text: string;
-  tone: "info" | "success" | "danger";
-} | null;
-
-function confidenceClass(confidence: number) {
-  if (confidence >= 0.85) return "confidence-pill confidence-pill--high";
-  if (confidence >= 0.6) return "confidence-pill confidence-pill--medium";
-  return "confidence-pill confidence-pill--low";
-}
-
 export default function ImportWizard() {
   const [supplier, setSupplier] = useState(SUPPLIER_OPTIONS[0].value);
   const [invoiceNo, setInvoiceNo] = useState("");
