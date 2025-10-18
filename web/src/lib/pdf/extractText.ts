@@ -24,14 +24,11 @@ type PdfJsModule = {
   GlobalWorkerOptions: { workerSrc?: string; workerPort?: Worker };
 };
 
-const PDFJS_DIST_VERSION = "3.11.174";
-const PDFJS_DIST_MODULE_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_DIST_VERSION}/build/pdf.mjs`;
-
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import(/* @vite-ignore */ PDFJS_DIST_MODULE_URL).then((pdfModule) => {
+    pdfJsModulePromise = import("pdfjs-dist/build/pdf.mjs").then((pdfModule) => {
       const pdfjs = (pdfModule as PdfJsModule | { default: PdfJsModule }).default ?? (pdfModule as PdfJsModule);
       return pdfjs;
     });
