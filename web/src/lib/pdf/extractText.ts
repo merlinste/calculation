@@ -14,26 +14,25 @@ type DocumentLoadTask = {
   promise: Promise<PDFDocumentProxy>;
 };
 
+type PdfDocumentOptions = {
+  data: Uint8Array;
+  disableWorker?: boolean;
+};
+
 type PdfJsModule = {
-  getDocument(config: { data: Uint8Array }): DocumentLoadTask;
+  getDocument(config: PdfDocumentOptions): DocumentLoadTask;
   GlobalWorkerOptions: { workerSrc?: string; workerPort?: Worker };
 };
 
-type PdfJsWorkerModule = { default: { new (): Worker } };
+const PDFJS_DIST_VERSION = "3.11.174";
+const PDFJS_DIST_MODULE_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_DIST_VERSION}/build/pdf.mjs`;
 
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = Promise.all([
-      import("pdfjs-dist/build/pdf.mjs"),
-      import("pdfjs-dist/build/pdf.worker.mjs?worker"),
-    ]).then(([pdfModule, workerModule]) => {
+    pdfJsModulePromise = import(/* @vite-ignore */ PDFJS_DIST_MODULE_URL).then((pdfModule) => {
       const pdfjs = (pdfModule as PdfJsModule | { default: PdfJsModule }).default ?? (pdfModule as PdfJsModule);
-      const workerCtor = (workerModule as PdfJsWorkerModule | { default: { new (): Worker } }).default;
-      if (workerCtor) {
-        pdfjs.GlobalWorkerOptions.workerPort = new workerCtor();
-      }
       return pdfjs;
     });
   }
@@ -57,7 +56,7 @@ async function extractPageText(content: TextContent): Promise<string> {
 
 export async function extractPdfText(data: Uint8Array): Promise<ExtractedPdfText> {
   const { getDocument } = await loadPdfJs();
-  const loadingTask = getDocument({ data });
+  const loadingTask = getDocument({ data, disableWorker: true });
   const pdf = await loadingTask.promise;
   const pageTexts: string[] = [];
   const pages: PDFPageProxy[] = [];
