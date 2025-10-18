@@ -20,6 +20,9 @@ export default function Nav({ onLogout }: Props) {
         <NavLink to="/products" className={linkClassName}>
           Produkte
         </NavLink>
+        <NavLink to="/suppliers" className={linkClassName}>
+          Lieferanten
+        </NavLink>
         <NavLink to="/import" className={linkClassName}>
           Import
         </NavLink>
