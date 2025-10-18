@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import logo from "../assets/earlybird-logo.svg";
 
 const logoUrl = "https://raw.githubusercontent.com/merlinste/calculation/main/web/src/assets/earlybird-logo.png";
 
@@ -19,6 +20,9 @@ export default function Nav({ onLogout }: Props) {
       <nav className="topbar__nav" aria-label="Hauptnavigation">
         <NavLink to="/products" className={linkClassName}>
           Produkte
+        </NavLink>
+        <NavLink to="/suppliers" className={linkClassName}>
+          Lieferanten
         </NavLink>
         <NavLink to="/import" className={linkClassName}>
           Import
