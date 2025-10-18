@@ -40,7 +40,12 @@ const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?/i;
 function cleanText(text: string): string[] {
   return text
     .split(/\r?\n/)
-    .map((line) => line.replace(/[\u00A0]/g, " ").trim())
+    .map((line) =>
+      line
+        .replace(/[\u00A0]/g, " ")
+        .replace(/\t+/g, "\t")
+        .trim()
+    )
     .filter(Boolean);
 }
 
@@ -121,7 +126,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
   let fallbackLineNo = 1;
 
   for (const line of lines) {
-    const current = line.replace(/\s{2,}/g, "\t");
+    const current = line.replace(/\t+/g, "\t").replace(/\s{2,}/g, "\t");
     const parts = current.split("\t").map((part) => part.trim()).filter(Boolean);
 
     if (/^\d+\s/.test(line) && parts.length >= 6) {
@@ -133,6 +138,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
     }
 
     const combinedParts = buffer
+      .replace(/\t+/g, "\t")
       .replace(/\s{2,}/g, "\t")
       .split("\t")
       .map((part) => part.trim())
@@ -148,6 +154,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
 
   if (buffer) {
     const combinedParts = buffer
+      .replace(/\t+/g, "\t")
       .replace(/\s{2,}/g, "\t")
       .split("\t")
       .map((part) => part.trim())
