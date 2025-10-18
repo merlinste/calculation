@@ -39,6 +39,11 @@ export default function App() {
         </div>
       </div>
     );
+    return null;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
   }
 
   if (!user) {
