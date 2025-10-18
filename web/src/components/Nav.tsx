@@ -23,6 +23,9 @@ export default function Nav({ onLogout }: Props) {
         <NavLink to="/import" className={linkClassName}>
           Import
         </NavLink>
+        <NavLink to="/invoice" className={linkClassName}>
+          Rechnung erfassen
+        </NavLink>
         <NavLink to="/prices" className={linkClassName}>
           Preisentwicklung
         </NavLink>

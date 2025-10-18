@@ -349,6 +349,68 @@ textarea:disabled {
   font-family: "JetBrains Mono", "Fira Code", monospace;
   font-size: 0.85rem;
   overflow: auto;
+  font-size: 0.9rem;
+}
+
+.invoice-table th,
+.invoice-table td {
+  vertical-align: middle;
+}
+
+.invoice-input {
+  width: 100%;
+}
+
+.invoice-actions {
+  text-align: right;
+}
+
+.invoice-sum {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.invoice-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.invoice-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (min-width: 640px) {
+  .invoice-footer {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.invoice-total {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+.invoice-total strong {
+  font-size: 1.35rem;
+  color: var(--text-strong);
+}
+
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .login-layout {

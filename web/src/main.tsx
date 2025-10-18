@@ -7,6 +7,7 @@ import Products from "./pages/Products";
 import ImportWizard from "./pages/ImportWizard";
 import PriceChart from "./pages/PriceChart";
 import DBTable from "./pages/DBTable";
+import ManualInvoice from "./pages/ManualInvoice";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -18,6 +19,7 @@ createRoot(document.getElementById("root")!).render(
           <Route index element={<Navigate to="products" />} />
           <Route path="products" element={<Products />} />
           <Route path="import" element={<ImportWizard />} />
+          <Route path="invoice" element={<ManualInvoice />} />
           <Route path="prices" element={<PriceChart />} />
           <Route path="db" element={<DBTable />} />
         </Route>
