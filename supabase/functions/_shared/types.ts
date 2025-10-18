@@ -19,6 +19,7 @@ export type ImportRow = {
   line_type: "product" | "surcharge" | "shipping";
   product_sku?: string;
   product_name?: string;
+  product_id?: number | null;
   qty: number;
   uom: "TU" | "STUECK" | "KG";
   unit_price_net: number;

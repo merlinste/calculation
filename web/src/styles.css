@@ -638,6 +638,28 @@ textarea:disabled {
   border-color: var(--accent);
 }
 
+.review-product-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-product-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.review-product-placeholder {
+  display: inline-block;
+  padding: 6px 0;
+  color: var(--text-muted);
+}
+
+.review-readonly {
+  padding: 6px 0;
+  font-size: 0.9rem;
+}
+
 .row-status--warning {
   background: rgba(234, 179, 8, 0.12);
 }
@@ -728,6 +750,12 @@ textarea:disabled {
 .invoice-sum {
   font-weight: 600;
   color: var(--text-strong);
+}
+
+.invoice-product-meta {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .invoice-controls {
