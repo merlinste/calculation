@@ -1,0 +1,9 @@
+[build]
+  command = "npm --prefix web ci && npm --prefix web run build"
+  publish = "web/dist"
+
+# SPA-Fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
