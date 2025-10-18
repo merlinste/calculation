@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Product = {
@@ -10,11 +10,28 @@ type Product = {
   active: boolean;
 };
 
+type Supplier = { id: number; name: string };
+
+type NewProduct = {
+  name: string;
+  sku: string;
+  base_uom: Product["base_uom"];
+  supplierId: number | null;
+};
+
 type Feedback = { text: string; tone: "success" | "danger" | "info" } | null;
 
 export default function Products() {
   const [items, setItems] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [creating, setCreating] = useState(false);
+  const [newProduct, setNewProduct] = useState<NewProduct>({
+    name: "",
+    sku: "",
+    base_uom: "piece",
+    supplierId: null,
+  });
 
   const load = async () => {
     const { data, error } = await supabase
@@ -28,8 +45,21 @@ export default function Products() {
     }
   };
 
+  const loadSuppliers = async () => {
+    const { data, error } = await supabase
+      .from("suppliers")
+      .select("id, name")
+      .order("name");
+    if (error) {
+      setFeedback({ text: error.message, tone: "danger" });
+    } else {
+      setSuppliers((data as Supplier[]) ?? []);
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadSuppliers();
   }, []);
 
   const update = async (product: Product) => {
@@ -46,6 +76,32 @@ export default function Products() {
     }
   };
 
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!newProduct.name.trim() || !newProduct.sku.trim() || !newProduct.supplierId) {
+      setFeedback({ text: "Bitte alle Pflichtfelder ausfüllen.", tone: "info" });
+      return;
+    }
+
+    setCreating(true);
+    const { error } = await supabase.from("products").insert({
+      name: newProduct.name.trim(),
+      sku: newProduct.sku.trim(),
+      base_uom: newProduct.base_uom,
+      supplier_id: newProduct.supplierId,
+    });
+
+    if (error) {
+      setFeedback({ text: error.message, tone: "danger" });
+    } else {
+      setFeedback({ text: "Produkt erfolgreich angelegt.", tone: "success" });
+      setNewProduct({ name: "", sku: "", base_uom: "piece", supplierId: null });
+      await load();
+    }
+    setCreating(false);
+  };
+
   return (
     <div className="page">
       <header className="page__header">
@@ -55,6 +111,81 @@ export default function Products() {
           verlässlichen Daten arbeiten können.
         </p>
       </header>
+
+      <section className="card">
+        <h2 className="section-title">Neues Produkt anlegen</h2>
+        <form className="form-grid two-columns" onSubmit={create}>
+          <label>
+            <span>Name</span>
+            <input
+              value={newProduct.name}
+              onChange={(event) =>
+                setNewProduct((state) => ({ ...state, name: event.target.value }))
+              }
+              placeholder="Produktname"
+              required
+            />
+          </label>
+          <label>
+            <span>Artikelnummer</span>
+            <input
+              value={newProduct.sku}
+              onChange={(event) =>
+                setNewProduct((state) => ({ ...state, sku: event.target.value }))
+              }
+              placeholder="z. B. SKU-123"
+              required
+            />
+          </label>
+          <label>
+            <span>Einheit</span>
+            <select
+              value={newProduct.base_uom}
+              onChange={(event) =>
+                setNewProduct((state) => ({ ...state, base_uom: event.target.value as Product["base_uom"] }))
+              }
+              required
+            >
+              <option value="piece">Stück</option>
+              <option value="kg">Kilogramm</option>
+            </select>
+          </label>
+          <label>
+            <span>Lieferant</span>
+            <select
+              value={newProduct.supplierId ?? ""}
+              onChange={(event) =>
+                setNewProduct((state) => ({
+                  ...state,
+                  supplierId: event.target.value ? Number(event.target.value) : null,
+                }))
+              }
+              required
+            >
+              <option value="" disabled>
+                Lieferant wählen…
+              </option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: "8px",
+            }}
+          >
+            <button type="submit" className="btn" disabled={creating}>
+              Produkt speichern
+            </button>
+          </div>
+        </form>
+      </section>
 
       <section className="card">
         <h2 className="section-title">Produktdetails</h2>
