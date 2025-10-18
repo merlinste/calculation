@@ -1,5 +1,5 @@
 import { defaultTaxRate, guessLineType, normaliseNumber, toAllowedUom, toIsoDate, withValidation } from "../utils";
-import type { InvoiceDraft, InvoiceLineDraft } from "../types";
+import type { InvoiceDraft, InvoiceLineDraft, InvoiceMetaField } from "../types";
 
 const VERSION = "2024-11-15";
 
@@ -8,6 +8,32 @@ const HEADER_PATTERNS = {
   invoiceDate: /(?:Rechnungsdatum|Invoice Date)[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
   gross: /(?:Bruttosumme|Gesamtbetrag|Total Due)[:#]?\s*([0-9.]+,[0-9]{2})/i,
 };
+
+const META_PATTERNS: Array<{
+  key: string;
+  label: string;
+  regex: RegExp;
+  transform?: (value: string) => string;
+}> = [
+  { key: "customer_no", label: "Kunden-Nr.", regex: /Kunden-?Nr\.?[:#]?\s*([A-Z0-9\-\/]+)/i },
+  { key: "order_no", label: "Bestellung", regex: /Bestellung[:#]?\s*([A-Z0-9\-\/]+)/i },
+  {
+    key: "delivery_note",
+    label: "Lieferschein",
+    regex: /Lieferschein(?:nr\.|nummer)?[:#]?\s*([A-Z0-9\-\/]+)/i,
+  },
+  {
+    key: "delivery_date",
+    label: "Lieferdatum",
+    regex: /Lieferdatum[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
+    transform: toIsoDate,
+  },
+  {
+    key: "debtor_no",
+    label: "Debitorennr.",
+    regex: /Debitorennr\.?[:#]?\s*([A-Z0-9\-\/]+)/i,
+  },
+];
 
 const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?/i;
 
@@ -27,6 +53,18 @@ function parseHeader(text: string) {
     invoiceDate: toIsoDate(invoiceDateRaw),
     gross: normaliseNumber(grossRaw, 2),
   };
+}
+
+function parseMeta(text: string): InvoiceMetaField[] {
+  const meta: InvoiceMetaField[] = [];
+  for (const field of META_PATTERNS) {
+    const match = text.match(field.regex);
+    const raw = match?.[1]?.trim();
+    if (!raw) continue;
+    const value = field.transform ? field.transform(raw) : raw;
+    meta.push({ key: field.key, label: field.label, value });
+  }
+  return meta;
 }
 
 function extractTable(lines: string[]): string[] {
@@ -126,6 +164,7 @@ export function parseMeyerHornTemplate(text: string, supplier: string): InvoiceD
   const lines = cleanText(text);
   const table = extractTable(lines);
   const items = collect(table);
+  const meta = parseMeta(text);
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
 
@@ -147,6 +186,7 @@ export function parseMeyerHornTemplate(text: string, supplier: string): InvoiceD
       usedOcr: false,
       warnings: [],
     },
+    meta,
     warnings,
     errors: [],
     items,

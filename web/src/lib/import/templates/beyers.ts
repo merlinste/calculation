@@ -144,6 +144,7 @@ export function parseBeyersTemplate(text: string, supplier: string): InvoiceDraf
       usedOcr: false,
       warnings: [],
     },
+    meta: [],
     warnings,
     errors: [],
     items,

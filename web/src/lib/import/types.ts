@@ -35,6 +35,12 @@ export type InvoiceDraftParserMeta = {
   warnings: string[];
 };
 
+export type InvoiceMetaField = {
+  key: string;
+  label: string;
+  value: string;
+};
+
 export type InvoiceDraft = {
   supplier: string;
   invoice_no: string;
@@ -42,6 +48,7 @@ export type InvoiceDraft = {
   currency: string;
   totals: InvoiceDraftTotals;
   parser: InvoiceDraftParserMeta;
+  meta: InvoiceMetaField[];
   warnings: string[];
   errors: string[];
   items: InvoiceLineDraft[];

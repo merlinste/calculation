@@ -39,6 +39,7 @@ export default function ImportWizard() {
     setDraft(null);
     setResult(null);
     setMessage(null);
+    setLastParsedFile(null);
   };
 
   const analyse = async (sourceFile?: File | null) => {
@@ -55,13 +56,20 @@ export default function ImportWizard() {
         invoiceDateOverride: invDate || undefined,
       });
 
-      if (!invoiceNo && parsed.invoice_no) setInvoiceNo(parsed.invoice_no);
-      if (!invDate && parsed.invoice_date) setInvDate(parsed.invoice_date);
+      const isReanalyse = lastParsedFile != null && targetFile === lastParsedFile;
+      const parsedInvoiceNo = parsed.invoice_no || "";
+      const parsedInvoiceDate = parsed.invoice_date || "";
+
+      const nextInvoiceNo = !isReanalyse || !invoiceNo ? parsedInvoiceNo || invoiceNo : invoiceNo;
+      const nextInvoiceDate = !isReanalyse || !invDate ? parsedInvoiceDate || invDate : invDate;
+
+      if (!isReanalyse || !invoiceNo) setInvoiceNo(nextInvoiceNo);
+      if (!isReanalyse || !invDate) setInvDate(nextInvoiceDate);
 
       const adjusted = cloneDraft(parsed);
       adjusted.supplier = supplier;
-      adjusted.invoice_no = invoiceNo || parsed.invoice_no;
-      adjusted.invoice_date = invDate || parsed.invoice_date;
+      adjusted.invoice_no = nextInvoiceNo;
+      adjusted.invoice_date = nextInvoiceDate;
       const validated = withValidation(adjusted);
 
       setDraft(validated);
@@ -149,7 +157,7 @@ export default function ImportWizard() {
 
       <section className="card">
         <h2 className="section-title">Import vorbereiten</h2>
-        <div className="form-grid two-columns">
+        <div className="form-grid two-columns import-grid">
           <label>
             <span>Lieferant</span>
             <input
@@ -162,29 +170,6 @@ export default function ImportWizard() {
             />
           </label>
           <label>
-            <span>Rechnungsnummer</span>
-            <input
-              value={invoiceNo}
-              onChange={(event) => {
-                const value = event.target.value;
-                setInvoiceNo(value);
-                setDraft((prev) => (prev ? { ...prev, invoice_no: value } : prev));
-              }}
-            />
-          </label>
-          <label>
-            <span>Rechnungsdatum</span>
-            <input
-              type="date"
-              value={invDate}
-              onChange={(event) => {
-                const value = event.target.value;
-                setInvDate(value);
-                setDraft((prev) => (prev ? { ...prev, invoice_date: value } : prev));
-              }}
-            />
-          </label>
-          <label>
             <span>Umlage</span>
             <select value={alloc} onChange={(event) => setAlloc(event.target.value as typeof alloc)}>
               <option value="none">Keine</option>
@@ -192,7 +177,7 @@ export default function ImportWizard() {
               <option value="per_piece">Pro Stück</option>
             </select>
           </label>
-          <label>
+          <label className="import-grid__file">
             <span>PDF-Datei</span>
             <input
               type="file"
@@ -200,10 +185,52 @@ export default function ImportWizard() {
               onChange={(event) => {
                 const selected = event.target.files?.[0] ?? null;
                 setFile(selected);
-                if (selected) resetState();
+                if (selected) {
+                  resetState();
+                  setInvoiceNo("");
+                  setInvDate("");
+                }
               }}
             />
           </label>
+        </div>
+        <div className="meta-panel">
+          <h3 className="meta-panel__title">Rechnungsdetails</h3>
+          <div className="meta-panel__grid">
+            <label className="meta-panel__control">
+              <span>Rechnungsnummer</span>
+              <input
+                value={invoiceNo}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setInvoiceNo(value);
+                  setDraft((prev) => (prev ? { ...prev, invoice_no: value } : prev));
+                }}
+              />
+            </label>
+            <label className="meta-panel__control">
+              <span>Rechnungsdatum</span>
+              <input
+                type="date"
+                value={invDate}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setInvDate(value);
+                  setDraft((prev) => (prev ? { ...prev, invoice_date: value } : prev));
+                }}
+              />
+            </label>
+            {draft?.meta?.length ? (
+              draft.meta.map((field) => (
+                <div key={field.key} className="meta-panel__field">
+                  <span className="meta-panel__label">{field.label}</span>
+                  <input value={field.value} readOnly />
+                </div>
+              ))
+            ) : (
+              <p className="meta-panel__empty">PDF analysieren, um weitere Kopfdaten zu laden.</p>
+            )}
+          </div>
         </div>
         <div className="wizard-actions">
           <button type="button" className="btn" onClick={() => analyse()} disabled={!file || parsing}>

@@ -55,6 +55,7 @@ export type InvoiceDraft = {
     usedOcr: boolean;
     warnings: string[];
   };
+  meta?: { key: string; label: string; value: string }[];
   warnings: string[];
   errors: string[];
   items: InvoiceDraftLine[];
