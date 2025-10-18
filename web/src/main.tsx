@@ -12,9 +12,9 @@ createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<App />}>
           <Route index element={<Navigate to="products" />} />
-          <Route path="login" element={<Login />} />
           <Route path="products" element={<Products />} />
           <Route path="import" element={<ImportWizard />} />
           <Route path="prices" element={<PriceChart />} />
