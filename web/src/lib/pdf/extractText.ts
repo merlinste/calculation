@@ -10,27 +10,22 @@ export type PDFDocumentProxy = {
   getPage(pageNumber: number): Promise<PDFPageProxy>;
 };
 
-type DocumentLoadTask = {
-  promise: Promise<PDFDocumentProxy>;
-};
+type PdfJsImport = typeof import("pdfjs-dist");
 
-type PdfDocumentOptions = {
-  data: Uint8Array;
-  disableWorker?: boolean;
-};
-
-type PdfJsModule = {
-  getDocument(config: PdfDocumentOptions): DocumentLoadTask;
-  GlobalWorkerOptions: { workerSrc?: string; workerPort?: Worker };
-};
+type PdfJsModule = Pick<PdfJsImport, "getDocument" | "GlobalWorkerOptions">;
 
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import("pdfjs-dist/build/pdf.mjs").then((pdfModule) => {
-      const pdfjs = (pdfModule as PdfJsModule | { default: PdfJsModule }).default ?? (pdfModule as PdfJsModule);
-      return pdfjs;
+    pdfJsModulePromise = import("pdfjs-dist").then((pdfModule) => {
+      const moduleWithDefault = pdfModule as { default?: PdfJsModule };
+      if (moduleWithDefault.default?.getDocument) {
+        return moduleWithDefault.default;
+      }
+
+      const { getDocument, GlobalWorkerOptions } = pdfModule as PdfJsModule;
+      return { getDocument, GlobalWorkerOptions };
     });
   }
   return pdfJsModulePromise;
