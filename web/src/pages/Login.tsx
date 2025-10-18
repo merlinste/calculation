@@ -1,32 +1,104 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import { useState } from "react";
+
+type Message = { text: string; tone: "error" | "info" | "success" } | null;
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
-  const [msg, setMsg] = useState("");
+  const [message, setMessage] = useState<Message>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const login = async (e: any) => {
-    e.preventDefault();
+  const redirectTo = useMemo(() => {
+    const state = location.state as { from?: string } | string | null;
+    const candidate = typeof state === "string" ? state : state?.from;
+    return candidate && candidate !== "/login" ? candidate : "/products";
+  }, [location.state]);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        navigate(redirectTo, { replace: true });
+      }
+    });
+  }, [navigate, redirectTo]);
+
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setMessage(null);
     const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
-    setMsg(error ? error.message : "Eingeloggt.");
+    if (error) {
+      setMessage({ text: error.message, tone: "error" });
+      setSubmitting(false);
+      return;
+    }
+    setSubmitting(false);
+    navigate(redirectTo, { replace: true });
   };
 
-  const signup = async () => {
+  const handleSignup = async () => {
+    setSubmitting(true);
+    setMessage(null);
     const { error } = await supabase.auth.signUp({ email, password: pw });
-    setMsg(error ? error.message : "Registriert – ggf. E-Mail bestätigen.");
+    if (error) {
+      setMessage({ text: error.message, tone: "error" });
+    } else {
+      setMessage({ text: "Registriert – bitte Posteingang bestätigen.", tone: "success" });
+    }
+    setSubmitting(false);
   };
+
+  const calloutTone = message?.tone === "error" ? "callout--danger" : message?.tone === "success" ? "callout--success" : "";
 
   return (
-    <form onSubmit={login} style={{maxWidth:360, margin:'6rem auto'}}>
-      <h2>Login</h2>
-      <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="E-Mail" style={{width:'100%',margin:'6px 0',padding:8}} />
-      <input type="password" value={pw} onChange={e=>setPw(e.target.value)} placeholder="Passwort" style={{width:'100%',margin:'6px 0',padding:8}} />
-      <div style={{display:'flex', gap:8}}>
-        <button type="submit">Login</button>
-        <button type="button" onClick={signup}>Sign up</button>
-      </div>
-      {msg && <p>{msg}</p>}
-    </form>
+    <div className="login-layout">
+      <form className="login-card" onSubmit={handleLogin}>
+        <header>
+          <h1>Willkommen zurück</h1>
+          <p>Melden Sie sich mit Ihren Zugangsdaten an, um weiterzuarbeiten.</p>
+        </header>
+
+        <label>
+          <span>E-Mail</span>
+          <input
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="name@firma.de"
+            type="email"
+            required
+            autoComplete="username"
+          />
+        </label>
+
+        <label>
+          <span>Passwort</span>
+          <input
+            type="password"
+            value={pw}
+            onChange={(event) => setPw(event.target.value)}
+            placeholder="••••••••"
+            required
+            autoComplete="current-password"
+          />
+        </label>
+
+        {message && <div className={`callout ${calloutTone}`}>{message.text}</div>}
+
+        <div className="login-actions">
+          <button type="submit" className="btn" disabled={submitting}>
+            {submitting ? "Wird geprüft…" : "Anmelden"}
+          </button>
+          <button type="button" className="btn btn--secondary" onClick={handleSignup} disabled={submitting}>
+            Registrieren
+          </button>
+        </div>
+
+        <p className="login-footer">Mit dem Fortfahren akzeptieren Sie unsere Nutzungsbedingungen.</p>
+      </form>
+    </div>
   );
 }
