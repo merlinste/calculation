@@ -19,8 +19,10 @@ function confidenceClass(confidence: number) {
 
 const SUPPLIER_OPTIONS = [
   { value: "Beyers Koffie", label: "Beyers Koffie" },
-  { value: "Max Meyer", label: "Max Meyer" },
-  { value: "Max Horn", label: "Max Horn" },
+  {
+    value: "Max Meyer & Max Horn GmbH",
+    label: "Max Meyer & Max Horn GmbH",
+  },
 ];
 
 export default function ImportWizard() {
