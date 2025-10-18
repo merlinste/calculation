@@ -7,6 +7,7 @@ import Products from "./pages/Products";
 import ImportWizard from "./pages/ImportWizard";
 import PriceChart from "./pages/PriceChart";
 import DBTable from "./pages/DBTable";
+import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

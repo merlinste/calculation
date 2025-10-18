@@ -26,6 +26,15 @@ export default function Login() {
     });
   }, [navigate, redirectTo]);
 
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        navigate(redirectTo, { replace: true });
+      }
+    });
+  }, [navigate, redirectTo]);
+
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSubmitting(true);
@@ -52,7 +61,18 @@ export default function Login() {
     setSubmitting(false);
   };
 
+  const calloutTone = message?.tone === "error" ? "callout--danger" : message?.tone === "success" ? "callout--success" : "";
+
   return (
+    <div className="login-layout">
+      <form className="login-card" onSubmit={handleLogin}>
+        <header>
+          <h1>Willkommen zurück</h1>
+          <p>Melden Sie sich mit Ihren Zugangsdaten an, um weiterzuarbeiten.</p>
+        </header>
+
+        <label>
+          <span>E-Mail</span>
     <div
       style={{
         minHeight: "100vh",
@@ -90,6 +110,12 @@ export default function Login() {
             placeholder="name@firma.de"
             type="email"
             required
+            autoComplete="username"
+          />
+        </label>
+
+        <label>
+          <span>Passwort</span>
             style={{
               borderRadius: "10px",
               border: "1px solid #d1d5db",
@@ -116,6 +142,17 @@ export default function Login() {
             onChange={(event) => setPw(event.target.value)}
             placeholder="••••••••"
             required
+            autoComplete="current-password"
+          />
+        </label>
+
+        {message && <div className={`callout ${calloutTone}`}>{message.text}</div>}
+
+        <div className="login-actions">
+          <button type="submit" className="btn" disabled={submitting}>
+            {submitting ? "Wird geprüft…" : "Anmelden"}
+          </button>
+          <button type="button" className="btn btn--secondary" onClick={handleSignup} disabled={submitting}>
             style={{
               borderRadius: "10px",
               border: "1px solid #d1d5db",
@@ -213,6 +250,7 @@ export default function Login() {
           </button>
         </div>
 
+        <p className="login-footer">Mit dem Fortfahren akzeptieren Sie unsere Nutzungsbedingungen.</p>
         <p style={{ margin: 0, fontSize: "0.85rem", color: "#9ca3af", textAlign: "center" }}>
           Mit dem Fortfahren akzeptieren Sie unsere Nutzungsbedingungen.
         </p>

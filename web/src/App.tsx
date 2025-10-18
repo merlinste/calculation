@@ -29,7 +29,21 @@ export default function App() {
   }, []);
 
   if (initialising) {
+    return (
+      <div className="login-layout">
+        <div className="login-card">
+          <header>
+            <h1>Bitte einen Moment</h1>
+            <p>Wir prüfen die aktuelle Sitzung…</p>
+          </header>
+        </div>
+      </div>
+    );
     return null;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
   }
 
   if (!user) {
@@ -39,10 +53,12 @@ export default function App() {
   const logout = async () => { await supabase.auth.signOut(); navigate("/login"); };
 
   return (
-    <div style={{display:'grid', gridTemplateColumns:'220px 1fr', minHeight:'100vh'}}>
+    <div className="app-shell">
       <Nav onLogout={logout} />
-      <main style={{padding:20}}>
-        <Outlet />
+      <main className="main-region">
+        <div className="main-inner">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
