@@ -1,6 +1,8 @@
 import { NavLink } from "react-router-dom";
 import logo from "../assets/earlybird-logo.svg";
 
+const logoUrl = "https://raw.githubusercontent.com/merlinste/calculation/main/web/src/assets/earlybird-logo.png";
+
 type Props = { onLogout: () => void };
 
 export default function Nav({ onLogout }: Props) {
@@ -9,7 +11,7 @@ export default function Nav({ onLogout }: Props) {
   return (
     <header className="topbar">
       <div className="topbar__brand">
-        <img className="brand-logo" src={logo} alt="earlybird Calculation" />
+        <img className="brand-logo" src={logoUrl} alt="earlybird Calculation" />
         <div className="brand-meta">
           <strong>earlybird Calculation</strong>
           <span>Kalkulationstool</span>
