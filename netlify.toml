@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix web ci && npm --prefix web run build"
+  command = "npm --prefix web install && npm --prefix web run build"
   publish = "web/dist"
 
 # SPA-Fallback
