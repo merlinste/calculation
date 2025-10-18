@@ -50,6 +50,10 @@ export default function App() {
     return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
   }
 
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
+  }
+
   const logout = async () => { await supabase.auth.signOut(); navigate("/login"); };
 
   return (
