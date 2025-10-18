@@ -1,3 +1,5 @@
+import workerSrc from "pdfjs-dist/build/pdf.worker.min.js?url";
+
 export type TextContentItem = { str?: string };
 export type TextContent = { items: TextContentItem[] };
 
@@ -20,12 +22,16 @@ async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
     pdfJsModulePromise = import("pdfjs-dist").then((pdfModule) => {
       const moduleWithDefault = pdfModule as { default?: PdfJsModule };
-      if (moduleWithDefault.default?.getDocument) {
-        return moduleWithDefault.default;
+      const loadedModule =
+        moduleWithDefault.default?.getDocument
+          ? moduleWithDefault.default
+          : (pdfModule as PdfJsModule);
+
+      if (loadedModule.GlobalWorkerOptions) {
+        loadedModule.GlobalWorkerOptions.workerSrc = workerSrc;
       }
 
-      const { getDocument, GlobalWorkerOptions } = pdfModule as PdfJsModule;
-      return { getDocument, GlobalWorkerOptions };
+      return loadedModule;
     });
   }
   return pdfJsModulePromise;
@@ -48,7 +54,7 @@ async function extractPageText(content: TextContent): Promise<string> {
 
 export async function extractPdfText(data: Uint8Array): Promise<ExtractedPdfText> {
   const { getDocument } = await loadPdfJs();
-  const loadingTask = getDocument({ data, disableWorker: true });
+  const loadingTask = getDocument({ data });
   const pdf = await loadingTask.promise;
   const pageTexts: string[] = [];
   const pages: PDFPageProxy[] = [];
