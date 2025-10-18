@@ -2,7 +2,7 @@
 // Payload: ImportPayload (csv-MVP via file_base64)
 
 import { makeClient } from "../_shared/supabaseClient.ts";
-import type { ImportPayload, ImportRow } from "../_shared/types.ts";
+import type { ImportPayload, ImportRow, InvoiceDraft } from "../_shared/types.ts";
 import { parseBeyers } from "../_shared/parsers/beyers.ts";
 import { parseMeyerHorn } from "../_shared/parsers/meyer_horn.ts";
 import { allocateSurcharges } from "../_shared/surcharge_allocator.ts";
@@ -38,30 +38,81 @@ Deno.serve(async (req) => {
     const warnings: string[] = [];
     const errors: string[] = [];
 
-    if (!payload.file_base64) {
-      return Response.json({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, { status: 400 });
+    const mode = payload.mode ?? "finalize";
+    if (payload.source === "pdf" && mode !== "finalize") {
+      return Response.json({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, { status: 400 });
     }
 
-    const csv = b64decode(payload.file_base64);
     let rows: ImportRow[] = [];
-    const supplierName = payload.supplier?.toLowerCase() ?? "";
+    let supplier = payload.supplier;
+    let invoiceNo = payload.invoice_no ?? "";
+    let invoiceDate = payload.invoice_date ?? "";
+    let currency = (payload.currency ?? "EUR") as "EUR";
+    let reviewTotals: InvoiceDraft["totals"] | undefined;
 
-    if (supplierName.includes("beyers")) rows = parseBeyers(csv);
-    else if (supplierName.includes("meyer") || supplierName.includes("horn")) rows = parseMeyerHorn(csv);
-    else {
-      // Fallback: versuche generisches Mapping
-      rows = parseBeyers(csv);
-      warnings.push("Unbekannter Supplier – generische CSV-Zuordnung versucht (Beyers-Layout).");
+    if (payload.source === "pdf") {
+      const draft = payload.draft;
+      if (!draft) {
+        return Response.json({ status: "error", errors: ["draft erforderlich"] }, { status: 400 });
+      }
+      supplier = draft.supplier || supplier;
+      invoiceNo = draft.invoice_no || invoiceNo;
+      invoiceDate = draft.invoice_date || invoiceDate;
+      currency = (draft.currency || currency) as "EUR";
+      reviewTotals = draft.totals;
+      warnings.push(...(draft.warnings ?? []), ...(draft.parser?.warnings ?? []));
+      errors.push(...(draft.errors ?? []));
+
+      rows = draft.items.map((item) => ({
+        supplier,
+        invoice_no: invoiceNo,
+        invoice_date: invoiceDate,
+        currency,
+        line_type: item.line_type,
+        product_sku: item.product_sku,
+        product_name: item.product_name,
+        qty: item.qty,
+        uom: item.uom,
+        unit_price_net: item.unit_price_net,
+        tax_rate_percent: item.tax_rate_percent,
+        line_total_net: item.line_total_net ?? item.qty * item.unit_price_net,
+        pack_definition_hint: item.pack_definition_hint,
+        notes: item.notes ?? undefined,
+        confidence: item.confidence,
+        issues: item.issues,
+        line_no: item.line_no,
+      }));
+      if (!rows.length) {
+        return Response.json({ status: "error", errors: ["Keine Positionen im Review übermittelt."] }, { status: 400 });
+      }
+      supplier = supplier || "Unknown Supplier";
+      invoiceNo = invoiceNo || draft.invoice_no;
+      invoiceDate = invoiceDate || draft.invoice_date;
+    } else {
+      if (!payload.file_base64) {
+        return Response.json({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, { status: 400 });
+      }
+
+      const csv = b64decode(payload.file_base64);
+      const supplierName = payload.supplier?.toLowerCase() ?? "";
+
+      if (supplierName.includes("beyers")) rows = parseBeyers(csv);
+      else if (supplierName.includes("meyer") || supplierName.includes("horn")) rows = parseMeyerHorn(csv);
+      else {
+        // Fallback: versuche generisches Mapping
+        rows = parseBeyers(csv);
+        warnings.push("Unbekannter Supplier – generische CSV-Zuordnung versucht (Beyers-Layout).");
+      }
+
+      if (!rows.length) return Response.json({ status: "error", errors: ["CSV leer"] }, { status: 400 });
+
+      // Header aus erster Zeile (CSV enthält ohnehin Kopf-Felder je Zeile)
+      const hdr = rows[0];
+      supplier = payload.supplier || hdr.supplier || "Unknown Supplier";
+      invoiceNo = payload.invoice_no || hdr.invoice_no;
+      invoiceDate = payload.invoice_date || hdr.invoice_date;
+      currency = (payload.currency || hdr.currency || "EUR") as "EUR";
     }
-
-    if (!rows.length) return Response.json({ status: "error", errors: ["CSV leer"] }, { status: 400 });
-
-    // Header aus erster Zeile (CSV enthält ohnehin Kopf-Felder je Zeile)
-    const hdr = rows[0];
-    const supplier = payload.supplier || hdr.supplier || "Unknown Supplier";
-    const invoiceNo = payload.invoice_no || hdr.invoice_no;
-    const invoiceDate = payload.invoice_date || hdr.invoice_date;
-    const currency = (payload.currency || hdr.currency || "EUR") as "EUR";
 
     // Supplier upsert
     const { data: supFind, error: supErr } = await supabase
@@ -99,6 +150,18 @@ Deno.serve(async (req) => {
     const netSum = rows.reduce((a, r) => a + (r.line_total_net || r.qty * r.unit_price_net), 0);
     const taxSum = rows.reduce((a, r) => a + ((r.line_total_net || r.qty * r.unit_price_net) * (r.tax_rate_percent/100)), 0);
     const grossSum = netSum + taxSum;
+
+    if (reviewTotals?.reportedGross) {
+      const diff = Math.abs(grossSum - reviewTotals.reportedGross);
+      const variance = (diff / reviewTotals.reportedGross) * 100;
+      if (variance > 0.5) {
+        warnings.push(`Summenabweichung ${variance.toFixed(2)} % zwischen Parser und Rechnung.`);
+      }
+    }
+
+    if (reviewTotals?.variancePercent != null) {
+      warnings.push(`Review-Check: gemeldete Abweichung ${reviewTotals.variancePercent.toFixed(2)} %.`);
+    }
 
     // Rechnung anlegen
     const { data: inv, error: invErr } = await supabase
@@ -282,9 +345,9 @@ Deno.serve(async (req) => {
       else warnings.push(`History-Insert Warnung: ${histErr.message}`);
     }
 
-    // Summenprüfung gegen Kopf: nur wenn Payload Summen mitliefert (MVP CSV enthält keine)
-    // -> Hinweis:
-    warnings.push("Summenprüfung: CSV ohne Kopf-Summen – geprüft wurden nur Zeilensummen (OK).");
+    if (payload.source === "csv") {
+      warnings.push("Summenprüfung: CSV ohne Kopf-Summen – geprüft wurden nur Zeilensummen (OK).");
+    }
 
     return Response.json({
       status: "ok",
