@@ -17,8 +17,25 @@ function confidenceClass(confidence: number) {
   return "confidence-pill confidence-pill--low";
 }
 
+const SUPPLIER_OPTIONS = [
+  { value: "Beyers Koffie", label: "Beyers Koffie" },
+  { value: "Max Meyer", label: "Max Meyer" },
+  { value: "Max Horn", label: "Max Horn" },
+];
+
+type MessageState = {
+  text: string;
+  tone: "info" | "success" | "danger";
+} | null;
+
+function confidenceClass(confidence: number) {
+  if (confidence >= 0.85) return "confidence-pill confidence-pill--high";
+  if (confidence >= 0.6) return "confidence-pill confidence-pill--medium";
+  return "confidence-pill confidence-pill--low";
+}
+
 export default function ImportWizard() {
-  const [supplier, setSupplier] = useState("Beyers Koffie");
+  const [supplier, setSupplier] = useState(SUPPLIER_OPTIONS[0].value);
   const [invoiceNo, setInvoiceNo] = useState("");
   const [invDate, setInvDate] = useState("");
   const [alloc, setAlloc] = useState<"per_kg" | "per_piece" | "none">("per_kg");
@@ -160,14 +177,20 @@ export default function ImportWizard() {
         <div className="form-grid two-columns import-grid">
           <label>
             <span>Lieferant</span>
-            <input
+            <select
               value={supplier}
               onChange={(event) => {
                 const value = event.target.value;
                 setSupplier(value);
                 setDraft((prev) => (prev ? { ...prev, supplier: value } : prev));
               }}
-            />
+            >
+              {SUPPLIER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             <span>Umlage</span>
