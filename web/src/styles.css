@@ -96,6 +96,32 @@ a {
   transition: background 120ms ease, color 120ms ease;
 }
 
+.nav__link--summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.nav__link--summary::after {
+  content: "▾";
+  font-size: 0.65rem;
+  transition: transform 120ms ease;
+}
+
+.nav__dropdown:hover .nav__link--summary::after,
+.nav__dropdown:focus-within .nav__link--summary::after {
+  transform: rotate(180deg);
+}
+
+.nav__dropdown button.nav__link {
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
 .nav__link:hover {
   background: var(--surface-muted);
   color: var(--text-strong);
@@ -104,6 +130,37 @@ a {
 .nav__link--active {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.nav__dropdown {
+  position: relative;
+}
+
+.nav__dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  min-width: 200px;
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--surface-muted);
+  z-index: 20;
+}
+
+.nav__dropdown:hover .nav__dropdown-menu,
+.nav__dropdown:focus-within .nav__dropdown-menu {
+  display: flex;
+}
+
+.nav__dropdown-menu .nav__link {
+  display: block;
+  border-radius: 8px;
+  white-space: nowrap;
 }
 
 .topbar__actions {
