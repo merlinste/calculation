@@ -1,4 +1,4 @@
-import type { PDFPageProxy } from "pdfjs-dist/types/src/display/api";
+import type { PDFPageProxy } from "./extractText";
 import workerUrl from "tesseract.js/dist/worker.min.js?url";
 import coreUrl from "tesseract.js-core/tesseract-core-simd.wasm.js?url";
 
