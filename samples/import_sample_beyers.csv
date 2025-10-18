@@ -1,0 +1,4 @@
+supplier,invoice_no,invoice_date,currency,line_type,product_sku,product_name,qty,uom,unit_price_net,tax_rate_percent,line_total_net,pack_definition_hint,notes
+Beyers Koffie,INV-2025-0001,2025-09-02,EUR,product,762100,Kapsel Espresso,5,TU,21.00,7,105.00,100/Stück pro TU,
+Beyers Koffie,INV-2025-0001,2025-09-02,EUR,product,762101,Kapsel Lungo,3,TU,19.50,7,58.50,100/Stück pro TU,
+Beyers Koffie,INV-2025-0001,2025-09-02,EUR,shipping,,,1,STUECK,8.50,19,8.50,,DHL Versand
