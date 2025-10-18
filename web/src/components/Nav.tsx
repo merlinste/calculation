@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import logo from "../assets/earlybird-logo.svg";
 
 type Props = { onLogout: () => void };
 
@@ -8,12 +9,10 @@ export default function Nav({ onLogout }: Props) {
   return (
     <header className="topbar">
       <div className="topbar__brand">
-        <div className="brand-mark" aria-hidden="true">
-          EP
-        </div>
+        <img className="brand-logo" src={logo} alt="earlybird Calculation" />
         <div className="brand-meta">
-          <strong>earlybird profit</strong>
-          <span>Projektmanagement</span>
+          <strong>earlybird Calculation</strong>
+          <span>Kalkulationstool</span>
         </div>
       </div>
       <nav className="topbar__nav" aria-label="Hauptnavigation">

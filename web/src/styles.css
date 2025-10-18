@@ -59,16 +59,10 @@ a {
   gap: 14px;
 }
 
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.brand-logo {
+  width: auto;
+  height: 44px;
+  display: block;
 }
 
 .brand-meta {
