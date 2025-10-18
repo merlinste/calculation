@@ -71,6 +71,7 @@ Deno.serve(async (req) => {
         line_type: item.line_type,
         product_sku: item.product_sku,
         product_name: item.product_name,
+        product_id: item.product_id ?? undefined,
         qty: item.qty,
         uom: item.uom,
         unit_price_net: item.unit_price_net,
@@ -198,10 +199,20 @@ Deno.serve(async (req) => {
     const prepared: ItemPrepared[] = [];
 
     for (const r of productRows) {
-      // Produktzuordnung: erst über SKU, sonst Name (rudimentär)
+      // Produktzuordnung: erst über Id, sonst SKU oder Name (rudimentär)
       let product: { id: number; base_uom: BaseUom; pieces_per_TU: number | null } | null = null;
 
-      if (r.product_sku) {
+      if (r.product_id) {
+        const { data: prod, error: prodErr } = await supabase
+          .from("products")
+          .select("id, base_uom, pieces_per_TU")
+          .eq("id", r.product_id)
+          .maybeSingle();
+        if (prodErr) throw prodErr;
+        if (prod) product = { id: prod.id, base_uom: prod.base_uom as BaseUom, pieces_per_TU: prod.pieces_per_TU };
+      }
+
+      if (!product && r.product_sku) {
         const { data: prod, error: prodErr } = await supabase
           .from("products")
           .select("id, base_uom, pieces_per_TU")

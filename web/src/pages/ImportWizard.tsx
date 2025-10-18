@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, functionsUrl } from "../lib/supabase";
 import { parsePdfInvoice } from "../lib/import/parsePdfInvoice";
 import type { InvoiceDraft, InvoiceLineDraft } from "../lib/import/types";
 import { ALLOWED_UOMS, cloneDraft, withValidation } from "../lib/import/utils";
+import { useProductOptions } from "../lib/useProductOptions";
 
 type ImportResult = Record<string, unknown> | null;
 
@@ -37,10 +38,78 @@ export default function ImportWizard() {
   const [message, setMessage] = useState<MessageState>(null);
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const {
+    products: productOptions,
+    loading: loadingProducts,
+    error: productError,
+  } = useProductOptions();
+
+  const productLookup = useMemo(() => {
+    const byId = new Map<number, { id: number; sku: string; name: string }>();
+    const bySku = new Map<string, { id: number; sku: string; name: string }>();
+    const byName = new Map<string, { id: number; sku: string; name: string }>();
+    productOptions.forEach((product) => {
+      const entry = { id: product.id, sku: product.sku, name: product.name };
+      byId.set(product.id, entry);
+      if (product.sku) {
+        bySku.set(product.sku.trim().toLowerCase(), entry);
+      }
+      if (product.name) {
+        byName.set(product.name.trim().toLowerCase(), entry);
+      }
+    });
+    return { byId, bySku, byName };
+  }, [productOptions]);
 
   const hasUnsureLines = useMemo(
     () => draft?.items.some((line) => line.issues.length > 0 || line.confidence < 0.7) ?? false,
     [draft?.items],
+  );
+
+  const assignProducts = useCallback(
+    (baseDraft: InvoiceDraft): InvoiceDraft => {
+      const items = baseDraft.items.map((line) => {
+        if (line.line_type !== "product") return line;
+
+        const matchedById =
+          line.product_id != null ? productLookup.byId.get(line.product_id) : undefined;
+        const matchedBySku = line.product_sku
+          ? productLookup.bySku.get(line.product_sku.trim().toLowerCase())
+          : undefined;
+        const matchedByName = line.product_name
+          ? productLookup.byName.get(line.product_name.trim().toLowerCase())
+          : undefined;
+        const matched = matchedById ?? matchedBySku ?? matchedByName;
+
+        if (matched) {
+          if (
+            line.product_id === matched.id &&
+            line.product_sku === matched.sku &&
+            line.product_name === matched.name
+          ) {
+            return line;
+          }
+          return {
+            ...line,
+            product_id: matched.id,
+            product_sku: matched.sku,
+            product_name: matched.name,
+          } satisfies InvoiceLineDraft;
+        }
+
+        if (line.product_id == null) return line;
+
+        return {
+          ...line,
+          product_id: undefined,
+        } satisfies InvoiceLineDraft;
+      });
+
+      const changed = items.some((item, index) => item !== baseDraft.items[index]);
+      if (!changed) return baseDraft;
+      return withValidation({ ...baseDraft, items });
+    },
+    [productLookup],
   );
 
   const resetState = () => {
@@ -79,8 +148,9 @@ export default function ImportWizard() {
       adjusted.invoice_no = nextInvoiceNo;
       adjusted.invoice_date = nextInvoiceDate;
       const validated = withValidation(adjusted);
+      const assigned = assignProducts(validated);
 
-      setDraft(validated);
+      setDraft(assigned);
       setLastParsedFile(targetFile);
       setMessage({ text: "Parser-Ergebnis aktualisiert. Bitte prüfen.", tone: "info" });
     } catch (error) {
@@ -91,6 +161,14 @@ export default function ImportWizard() {
     }
   };
 
+  useEffect(() => {
+    if (!draft) return;
+    const next = assignProducts(draft);
+    if (next !== draft) {
+      setDraft(next);
+    }
+  }, [assignProducts, draft]);
+
   const updateLine = (index: number, partial: Partial<InvoiceLineDraft>) => {
     setDraft((prev) => {
       if (!prev) return prev;
@@ -99,6 +177,8 @@ export default function ImportWizard() {
       const qtyValue = partial.qty ?? current.qty;
       const unitPriceValue = partial.unit_price_net ?? current.unit_price_net;
       const taxValue = partial.tax_rate_percent ?? current.tax_rate_percent;
+      const productIdValue =
+        partial.product_id !== undefined ? partial.product_id ?? undefined : current.product_id;
       const updated: InvoiceLineDraft = {
         ...current,
         ...partial,
@@ -109,9 +189,30 @@ export default function ImportWizard() {
         uom: partial.uom ?? current.uom,
         product_name: partial.product_name ?? current.product_name,
         product_sku: partial.product_sku ?? current.product_sku,
+        product_id: productIdValue,
       };
+      if (updated.line_type !== "product") {
+        updated.product_id = undefined;
+      }
       next.items[index] = updated;
       return withValidation(next);
+    });
+  };
+
+  const handleProductSelect = (index: number, productId: number | null) => {
+    if (productId == null) {
+      updateLine(index, { product_id: undefined });
+      return;
+    }
+    const product = productLookup.byId.get(productId);
+    if (!product) {
+      updateLine(index, { product_id: undefined });
+      return;
+    }
+    updateLine(index, {
+      product_id: product.id,
+      product_sku: product.sku,
+      product_name: product.name,
     });
   };
 
@@ -325,13 +426,26 @@ export default function ImportWizard() {
             </div>
           )}
 
+          {productError && (
+            <div className="callout callout--danger">
+              Produkte konnten nicht geladen werden: {productError}
+            </div>
+          )}
+          {!loadingProducts && !productOptions.length && !productError && (
+            <div className="callout callout--info">
+              Es sind keine aktiven Produkte verfügbar. Legen Sie zunächst Artikel im Bereich{" "}
+              <strong>Produkte</strong> an.
+            </div>
+          )}
+
           <div className="table-wrapper">
             <table className="review-table">
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>SKU</th>
                   <th>Produkt</th>
+                  <th>SKU</th>
+                  <th>Produktname</th>
                   <th>Menge</th>
                   <th>Einheit</th>
                   <th>Einzelpreis (€)</th>
@@ -356,16 +470,62 @@ export default function ImportWizard() {
                   >
                     <td>{line.line_no}</td>
                     <td>
-                      <input
-                        value={line.product_sku ?? ""}
-                        onChange={(event) => updateLine(index, { product_sku: event.target.value || undefined })}
-                      />
+                      {line.line_type === "product" ? (
+                        <div className="review-product-cell">
+                          <select
+                            value={line.product_id != null ? String(line.product_id) : ""}
+                            onChange={(event) =>
+                              handleProductSelect(
+                                index,
+                                event.target.value ? Number.parseInt(event.target.value, 10) : null,
+                              )
+                            }
+                            disabled={loadingProducts || !productOptions.length}
+                            required={productOptions.length > 0 && line.line_type === "product"}
+                          >
+                            <option value="" disabled>
+                              {loadingProducts ? "Produkte laden…" : "Produkt wählen"}
+                            </option>
+                            {productOptions.map((product) => (
+                              <option key={product.id} value={product.id}>
+                                {product.sku ? `${product.sku} · ${product.name}` : product.name}
+                              </option>
+                            ))}
+                          </select>
+                          {!line.product_id && (line.product_sku || line.product_name) ? (
+                            <div className="review-product-hint">
+                              Parser: {line.product_sku ? `${line.product_sku} · ` : ""}
+                              {line.product_name ?? ""}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="review-product-placeholder">–</span>
+                      )}
                     </td>
                     <td>
-                      <input
-                        value={line.product_name ?? ""}
-                        onChange={(event) => updateLine(index, { product_name: event.target.value || undefined })}
-                      />
+                      {line.line_type === "product" ? (
+                        <div className="review-readonly">{line.product_sku ?? "—"}</div>
+                      ) : (
+                        <input
+                          value={line.product_sku ?? ""}
+                          onChange={(event) =>
+                            updateLine(index, { product_sku: event.target.value || undefined })
+                          }
+                        />
+                      )}
+                    </td>
+                    <td>
+                      {line.line_type === "product" ? (
+                        <div className="review-readonly">{line.product_name ?? "—"}</div>
+                      ) : (
+                        <input
+                          value={line.product_name ?? ""}
+                          onChange={(event) =>
+                            updateLine(index, { product_name: event.target.value || undefined })
+                          }
+                        />
+                      )}
                     </td>
                     <td>
                       <input

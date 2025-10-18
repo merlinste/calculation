@@ -82,6 +82,10 @@ export function recalcTotals(draft: InvoiceDraft): InvoiceDraft {
       issues.push("Produktname fehlt");
       confidence = Math.min(confidence, 0.6);
     }
+    if (item.line_type === "product" && (item.product_id == null || Number.isNaN(item.product_id))) {
+      issues.push("Produktzuordnung fehlt");
+      confidence = Math.min(confidence, 0.6);
+    }
     if (!ALLOWED_UOMS.includes(item.uom)) {
       issues.push(`Einheit ${item.uom} nicht zulässig`);
       confidence = Math.min(confidence, 0.4);

@@ -1,8 +1,9 @@
 import { FormEvent, useMemo, useState } from "react";
+import { useProductOptions } from "../lib/useProductOptions";
 
 type LineItem = {
   id: string;
-  product: string;
+  productId: number | null;
   quantity: string;
   unit: string;
   price: string;
@@ -10,7 +11,7 @@ type LineItem = {
 
 const createLineItem = (id: number): LineItem => ({
   id: `line-${id}`,
-  product: "",
+  productId: null,
   quantity: "",
   unit: "",
   price: "",
@@ -23,6 +24,15 @@ export default function ManualInvoice() {
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem(0)]);
   const [nextId, setNextId] = useState(1);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const { products, loading: loadingProducts, error: productsError } = useProductOptions();
+
+  const productMap = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; sku: string }>();
+    products.forEach((product) => {
+      map.set(product.id, { id: product.id, name: product.name, sku: product.sku });
+    });
+    return map;
+  }, [products]);
 
   const currencyFormatter = useMemo(
     () => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }),
@@ -61,13 +71,18 @@ export default function ManualInvoice() {
       supplier,
       invoiceNumber,
       invoiceDate,
-      lineItems: lineItems.map((item, index) => ({
-        product: item.product.trim(),
-        quantity: parseFloat(item.quantity.replace(",", ".")) || 0,
-        unit: item.unit.trim(),
-        price: parseFloat(item.price.replace(",", ".")) || 0,
-        total: totals[index],
-      })),
+      lineItems: lineItems.map((item, index) => {
+        const product = item.productId != null ? productMap.get(item.productId) : undefined;
+        return {
+          productId: product?.id ?? null,
+          productSku: product?.sku ?? null,
+          productName: product?.name ?? null,
+          quantity: parseFloat(item.quantity.replace(",", ".")) || 0,
+          unit: item.unit.trim(),
+          price: parseFloat(item.price.replace(",", ".")) || 0,
+          total: totals[index],
+        };
+      }),
       totalAmount: grandTotal,
     };
 
@@ -121,11 +136,20 @@ export default function ManualInvoice() {
 
           <section>
             <h2 className="section-title">Positionen</h2>
+            {productsError && (
+              <div className="callout callout--danger">Produktliste konnte nicht geladen werden: {productsError}</div>
+            )}
+            {!loadingProducts && !products.length && !productsError && (
+              <div className="callout callout--info">
+                Es sind noch keine aktiven Produkte hinterlegt. Legen Sie zuerst Artikel unter{" "}
+                <strong>Produkte</strong> an.
+              </div>
+            )}
             <div className="table-scroll">
               <table className="data-table invoice-table">
                 <thead>
                   <tr>
-                    <th>Produkt / Beschreibung</th>
+                    <th>Produkt</th>
                     <th>Menge</th>
                     <th>Einheit</th>
                     <th>Preis</th>
@@ -134,64 +158,90 @@ export default function ManualInvoice() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lineItems.map((item, index) => (
-                    <tr key={item.id}>
-                      <td>
-                        <input
-                          className="invoice-input"
-                          value={item.product}
-                          onChange={(event) => updateLineItem(item.id, "product", event.target.value)}
-                          placeholder="Artikelbezeichnung"
-                          required
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="invoice-input"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.quantity}
-                          onChange={(event) => updateLineItem(item.id, "quantity", event.target.value)}
-                          placeholder="0"
-                          required
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="invoice-input"
-                          value={item.unit}
-                          onChange={(event) => updateLineItem(item.id, "unit", event.target.value)}
-                          placeholder="z.B. Stk, kg"
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="invoice-input"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.price}
-                          onChange={(event) => updateLineItem(item.id, "price", event.target.value)}
-                          placeholder="0.00"
-                          required
-                        />
-                      </td>
-                      <td className="invoice-sum">
-                        {currencyFormatter.format(totals[index] ?? 0)}
-                      </td>
-                      <td className="invoice-actions">
-                        <button
-                          type="button"
-                          className="btn btn--secondary btn--small"
-                          onClick={() => removeLineItem(item.id)}
-                          disabled={lineItems.length === 1}
-                        >
-                          Entfernen
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {lineItems.map((item, index) => {
+                    const selectedProduct =
+                      item.productId != null ? productMap.get(item.productId) : undefined;
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <select
+                            className="invoice-input"
+                            value={item.productId != null ? String(item.productId) : ""}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              updateLineItem(
+                                item.id,
+                                "productId",
+                                value ? Number.parseInt(value, 10) : null,
+                              );
+                            }}
+                            disabled={loadingProducts || !products.length}
+                            required={products.length > 0}
+                          >
+                            <option value="" disabled>
+                              {loadingProducts ? "Lade Produkte…" : "Produkt wählen"}
+                            </option>
+                            {products.map((product) => (
+                              <option key={product.id} value={product.id}>
+                                {product.sku ? `${product.sku} · ${product.name}` : product.name}
+                              </option>
+                            ))}
+                          </select>
+                          {selectedProduct && (
+                            <div className="invoice-product-meta">
+                              {selectedProduct.name}
+                              {selectedProduct.sku ? ` (SKU: ${selectedProduct.sku})` : ""}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <input
+                            className="invoice-input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.quantity}
+                            onChange={(event) => updateLineItem(item.id, "quantity", event.target.value)}
+                            placeholder="0"
+                            required
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="invoice-input"
+                            value={item.unit}
+                            onChange={(event) => updateLineItem(item.id, "unit", event.target.value)}
+                            placeholder="z.B. Stk, kg"
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="invoice-input"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.price}
+                            onChange={(event) => updateLineItem(item.id, "price", event.target.value)}
+                            placeholder="0.00"
+                            required
+                          />
+                        </td>
+                        <td className="invoice-sum">
+                          {currencyFormatter.format(totals[index] ?? 0)}
+                        </td>
+                        <td className="invoice-actions">
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--small"
+                            onClick={() => removeLineItem(item.id)}
+                            disabled={lineItems.length === 1}
+                          >
+                            Entfernen
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
