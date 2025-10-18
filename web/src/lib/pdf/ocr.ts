@@ -1,6 +1,8 @@
 import type { PDFPageProxy } from "./extractText";
-import workerUrl from "tesseract.js/dist/worker.min.js?url";
-import coreUrl from "tesseract.js-core/tesseract-core-simd.wasm.js?url";
+
+const TESSERACT_VERSION = "5.1.0";
+const WORKER_URL = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/worker.min.js`;
+const CORE_URL = `https://cdn.jsdelivr.net/npm/tesseract.js-core@${TESSERACT_VERSION}/tesseract-core-simd.wasm.js`;
 
 const LANG_URL = "https://tessdata.projectnaptha.com/4.0.0_fast";
 
@@ -16,11 +18,13 @@ async function renderPageToCanvas(page: PDFPageProxy, scale = 2): Promise<HTMLCa
 }
 
 export async function ocrPdf(pages: PDFPageProxy[]): Promise<{ text: string; warnings: string[] }> {
-  const { createWorker } = await import("tesseract.js");
+  const { createWorker } = await import(
+    /* @vite-ignore */ `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/tesseract.esm.min.js`
+  );
 
   const worker = await createWorker({
-    workerPath: workerUrl,
-    corePath: coreUrl,
+    workerPath: WORKER_URL,
+    corePath: CORE_URL,
     langPath: LANG_URL,
     logger: () => {},
   });
