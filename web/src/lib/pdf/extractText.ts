@@ -1,6 +1,3 @@
-const PDFJS_VERSION = "3.11.174";
-const PDFJS_BASE_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build`;
-
 export type TextContentItem = { str?: string };
 export type TextContent = { items: TextContentItem[] };
 
@@ -19,18 +16,24 @@ type DocumentLoadTask = {
 
 type PdfJsModule = {
   getDocument(config: { data: Uint8Array }): DocumentLoadTask;
-  GlobalWorkerOptions: { workerSrc: string };
+  GlobalWorkerOptions: { workerSrc?: string; workerPort?: Worker };
 };
+
+type PdfJsWorkerModule = { default: { new (): Worker } };
 
 let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import(
-      /* @vite-ignore */ `${PDFJS_BASE_URL}/pdf.min.mjs`
-    ).then((module) => {
-      const pdfjs = (module as PdfJsModule | { default: PdfJsModule }).default ?? (module as PdfJsModule);
-      pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_BASE_URL}/pdf.worker.min.js`;
+    pdfJsModulePromise = Promise.all([
+      import("pdfjs-dist/build/pdf.mjs"),
+      import("pdfjs-dist/build/pdf.worker.mjs?worker"),
+    ]).then(([pdfModule, workerModule]) => {
+      const pdfjs = (pdfModule as PdfJsModule | { default: PdfJsModule }).default ?? (pdfModule as PdfJsModule);
+      const workerCtor = (workerModule as PdfJsWorkerModule | { default: { new (): Worker } }).default;
+      if (workerCtor) {
+        pdfjs.GlobalWorkerOptions.workerPort = new workerCtor();
+      }
       return pdfjs;
     });
   }
