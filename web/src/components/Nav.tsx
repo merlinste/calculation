@@ -1,21 +1,37 @@
 import { NavLink } from "react-router-dom";
 
-export default function Nav({ onLogout }: { onLogout: ()=>void }) {
-  const linkStyle = ({ isActive }: any) => ({
-    display:'block', padding:'10px 14px',
-    background: isActive ? '#eef' : 'transparent',
-    textDecoration:'none'
-  });
+type Props = { onLogout: () => void };
+
+export default function Nav({ onLogout }: Props) {
+  const linkClassName = ({ isActive }: { isActive: boolean }) =>
+    `nav__link${isActive ? " nav__link--active" : ""}`;
+
   return (
-    <aside style={{borderRight:'1px solid #ddd', padding:12}}>
-      <h3>earlybird</h3>
+    <aside className="sidebar">
+      <div className="sidebar__brand">
+        <h1>earlybird profit</h1>
+        <p>Insights &amp; Automatisierung</p>
+      </div>
       <nav>
-        <NavLink to="/products" style={linkStyle}>Artikel</NavLink>
-        <NavLink to="/import" style={linkStyle}>Rechnungen Import</NavLink>
-        <NavLink to="/prices" style={linkStyle}>Preisentwicklung</NavLink>
-        <NavLink to="/db" style={linkStyle}>Verkaufspreise & DB</NavLink>
+        <NavLink to="/products" className={linkClassName}>
+          Artikel
+        </NavLink>
+        <NavLink to="/import" className={linkClassName}>
+          Rechnungen Import
+        </NavLink>
+        <NavLink to="/prices" className={linkClassName}>
+          Preisentwicklung
+        </NavLink>
+        <NavLink to="/db" className={linkClassName}>
+          Verkaufspreise &amp; DB
+        </NavLink>
       </nav>
-      <button onClick={onLogout} style={{marginTop:12}}>Logout</button>
+      <div className="sidebar__footer">
+        <button type="button" className="btn btn--ghost sidebar__logout" onClick={onLogout}>
+          Logout
+        </button>
+        <small>Version Beta</small>
+      </div>
     </aside>
   );
 }
