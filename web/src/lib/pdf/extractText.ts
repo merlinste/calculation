@@ -26,8 +26,8 @@ let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
 async function loadPdfJs(): Promise<PdfJsModule> {
   if (!pdfJsModulePromise) {
     pdfJsModulePromise = Promise.all([
-      import("pdfjs-dist/build/pdf.min.mjs"),
-      import("pdfjs-dist/build/pdf.worker.min.mjs?worker"),
+      import("pdfjs-dist/build/pdf.mjs"),
+      import("pdfjs-dist/build/pdf.worker.mjs?worker"),
     ]).then(([pdfModule, workerModule]) => {
       const pdfjs = (pdfModule as PdfJsModule | { default: PdfJsModule }).default ?? (pdfModule as PdfJsModule);
       const workerCtor = (workerModule as PdfJsWorkerModule | { default: { new (): Worker } }).default;
