@@ -1,34 +1,59 @@
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import Nav from "./components/Nav";
-import { useEffect, useState } from "react";
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [initialising, setInitialising] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const targetAfterLogin = useMemo(
+    () => location.pathname + location.search + location.hash,
+    [location.hash, location.pathname, location.search],
+  );
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user ?? null));
+    supabase.auth
+      .getUser()
+      .then(({ data, error }) => {
+        setUser(error ? null : data.user);
+      })
+      .finally(() => setInitialising(false));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUser(session?.user ?? null);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (!user) {
+  if (initialising) {
     return (
-      <div style={{padding:16}}>
-        <h1>earlybird profit</h1>
-        <p><Link to="/login">Bitte einloggen</Link></p>
+      <div className="login-layout">
+        <div className="login-card">
+          <header>
+            <h1>Bitte einen Moment</h1>
+            <p>Wir prüfen die aktuelle Sitzung…</p>
+          </header>
+        </div>
       </div>
     );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: targetAfterLogin }} />;
   }
 
   const logout = async () => { await supabase.auth.signOut(); navigate("/login"); };
 
   return (
-    <div style={{display:'grid', gridTemplateColumns:'220px 1fr', minHeight:'100vh'}}>
+    <div className="app-shell">
       <Nav onLogout={logout} />
-      <main style={{padding:20}}>
-        <Outlet />
+      <main className="main-region">
+        <div className="main-inner">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

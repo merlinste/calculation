@@ -1,21 +1,41 @@
 import { NavLink } from "react-router-dom";
 
-export default function Nav({ onLogout }: { onLogout: ()=>void }) {
-  const linkStyle = ({ isActive }: any) => ({
-    display:'block', padding:'10px 14px',
-    background: isActive ? '#eef' : 'transparent',
-    textDecoration:'none'
-  });
+type Props = { onLogout: () => void };
+
+export default function Nav({ onLogout }: Props) {
+  const linkClassName = ({ isActive }: { isActive: boolean }) => `nav__link${isActive ? " nav__link--active" : ""}`;
+
   return (
-    <aside style={{borderRight:'1px solid #ddd', padding:12}}>
-      <h3>earlybird</h3>
-      <nav>
-        <NavLink to="/products" style={linkStyle}>Artikel</NavLink>
-        <NavLink to="/import" style={linkStyle}>Rechnungen Import</NavLink>
-        <NavLink to="/prices" style={linkStyle}>Preisentwicklung</NavLink>
-        <NavLink to="/db" style={linkStyle}>Verkaufspreise & DB</NavLink>
+    <header className="topbar">
+      <div className="topbar__brand">
+        <div className="brand-mark" aria-hidden="true">
+          EP
+        </div>
+        <div className="brand-meta">
+          <strong>earlybird profit</strong>
+          <span>Projektmanagement</span>
+        </div>
+      </div>
+      <nav className="topbar__nav" aria-label="Hauptnavigation">
+        <NavLink to="/products" className={linkClassName}>
+          Produkte
+        </NavLink>
+        <NavLink to="/import" className={linkClassName}>
+          Import
+        </NavLink>
+        <NavLink to="/prices" className={linkClassName}>
+          Preisentwicklung
+        </NavLink>
+        <NavLink to="/db" className={linkClassName}>
+          Deckungsbeiträge
+        </NavLink>
       </nav>
-      <button onClick={onLogout} style={{marginTop:12}}>Logout</button>
-    </aside>
+      <div className="topbar__actions">
+        <span className="topbar__status">Beta-Version</span>
+        <button type="button" className="btn btn--ghost" onClick={onLogout}>
+          Abmelden
+        </button>
+      </div>
+    </header>
   );
 }
