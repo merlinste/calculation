@@ -22,17 +22,20 @@ create unique index if not exists import_parser_feedback_unique
 
 alter table public.import_parser_feedback enable row level security;
 
-create policy if not exists "import_parser_feedback_select"
+drop policy if exists "import_parser_feedback_select" on public.import_parser_feedback;
+create policy "import_parser_feedback_select"
   on public.import_parser_feedback
   for select
   using (auth.role() = 'authenticated');
 
-create policy if not exists "import_parser_feedback_insert"
+drop policy if exists "import_parser_feedback_insert" on public.import_parser_feedback;
+create policy "import_parser_feedback_insert"
   on public.import_parser_feedback
   for insert
   with check (auth.role() = 'authenticated');
 
-create policy if not exists "import_parser_feedback_update"
+drop policy if exists "import_parser_feedback_update" on public.import_parser_feedback;
+create policy "import_parser_feedback_update"
   on public.import_parser_feedback
   for update
   using (auth.role() = 'authenticated')
