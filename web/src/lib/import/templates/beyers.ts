@@ -276,7 +276,12 @@ export function parseBeyersTemplate(text: string, supplier: string): InvoiceDraf
   const header = parseHeader(text);
   const lines = sanitiseLines(text);
   const tableLines = sliceTable(lines);
-  const items = collectTableLines(tableLines);
+  let items = collectTableLines(tableLines);
+
+  if (items.length === 0) {
+    const fallbackCandidates = lines.filter((line) => /^\d+\s+\S+/.test(line.trim()));
+    items = collectTableLines(fallbackCandidates);
+  }
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
 
