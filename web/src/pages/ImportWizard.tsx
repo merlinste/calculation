@@ -55,20 +55,35 @@ export default function ImportWizard() {
   } = useProductOptions();
 
   const productLookup = useMemo(() => {
-    const byId = new Map<number, { id: number; sku: string; name: string }>();
-    const bySku = new Map<string, { id: number; sku: string; name: string }>();
-    const byName = new Map<string, { id: number; sku: string; name: string }>();
+    const byId = new Map<
+      number,
+      { id: number; sku: string; name: string; supplierItemNumber: string | null }
+    >();
+    const bySku = new Map<string, { id: number; sku: string; name: string; supplierItemNumber: string | null }>();
+    const bySupplierSku = new Map<
+      string,
+      { id: number; sku: string; name: string; supplierItemNumber: string | null }
+    >();
+    const byName = new Map<string, { id: number; sku: string; name: string; supplierItemNumber: string | null }>();
     productOptions.forEach((product) => {
-      const entry = { id: product.id, sku: product.sku, name: product.name };
+      const entry = {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        supplierItemNumber: product.supplierItemNumber ?? null,
+      };
       byId.set(product.id, entry);
       if (product.sku) {
         bySku.set(product.sku.trim().toLowerCase(), entry);
+      }
+      if (product.supplierItemNumber) {
+        bySupplierSku.set(product.supplierItemNumber.trim().toLowerCase(), entry);
       }
       if (product.name) {
         byName.set(product.name.trim().toLowerCase(), entry);
       }
     });
-    return { byId, bySku, byName };
+    return { byId, bySku, bySupplierSku, byName };
   }, [productOptions]);
 
   const setManualAssignment = useCallback((lineNo: number, assignment: ManualAssignmentState | null) => {
@@ -108,10 +123,13 @@ export default function ImportWizard() {
         const matchedBySku = line.product_sku
           ? productLookup.bySku.get(line.product_sku.trim().toLowerCase())
           : undefined;
+        const matchedBySupplierSku = line.product_sku
+          ? productLookup.bySupplierSku.get(line.product_sku.trim().toLowerCase())
+          : undefined;
         const matchedByName = line.product_name
           ? productLookup.byName.get(line.product_name.trim().toLowerCase())
           : undefined;
-        const matched = matchedById ?? matchedBySku ?? matchedByName;
+        const matched = matchedById ?? matchedBySku ?? matchedBySupplierSku ?? matchedByName;
 
         if (matched) {
           if (

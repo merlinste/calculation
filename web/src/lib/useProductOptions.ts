@@ -5,6 +5,7 @@ export type ProductOption = {
   id: number;
   sku: string;
   name: string;
+  supplierItemNumber: string | null;
   active: boolean | null;
 };
 
@@ -25,7 +26,7 @@ export function useProductOptions(): ProductOptionsResult {
     setError(null);
     const { data, error: queryError } = await supabase
       .from("products")
-      .select("id, sku, name, active")
+      .select("id, sku, name, active, supplier_item_number")
       .order("name", { ascending: true });
 
     if (queryError) {
@@ -36,6 +37,7 @@ export function useProductOptions(): ProductOptionsResult {
         id: item.id as number,
         sku: item.sku as string,
         name: item.name as string,
+        supplierItemNumber: (item.supplier_item_number as string | null) ?? null,
         active: (item.active as boolean | null) ?? null,
       }));
       setProducts(list.filter((item) => item.active !== false));
