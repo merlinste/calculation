@@ -1,6 +1,7 @@
 // POST /functions/v1/import-invoice
 // Payload: ImportPayload (csv-MVP via file_base64)
 
+import { withCors } from "../_shared/cors.ts";
 import { makeClient } from "../_shared/supabaseClient.ts";
 import type { ImportPayload, ImportRow, InvoiceDraft, ManualFeedbackInput } from "../_shared/types.ts";
 import { parseBeyers } from "../_shared/parsers/beyers.ts";
@@ -28,9 +29,13 @@ function toBaseUom(uom: "TU" | "STUECK" | "KG", productBase: BaseUom, piecesPerT
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", withCors());
+  }
+
   try {
     if (req.method !== "POST") {
-      return new Response(JSON.stringify({ error: "Use POST" }), { status: 405 });
+      return Response.json({ error: "Use POST" }, withCors({ status: 405 }));
     }
     const supabase = makeClient(req);
     const payload = (await req.json()) as ImportPayload;
@@ -40,7 +45,7 @@ Deno.serve(async (req) => {
 
     const mode = payload.mode ?? "finalize";
     if (payload.source === "pdf" && mode !== "finalize") {
-      return Response.json({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, { status: 400 });
+      return Response.json({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, withCors({ status: 400 }));
     }
 
     let rows: ImportRow[] = [];
@@ -53,7 +58,7 @@ Deno.serve(async (req) => {
     if (payload.source === "pdf") {
       const draft = payload.draft;
       if (!draft) {
-        return Response.json({ status: "error", errors: ["draft erforderlich"] }, { status: 400 });
+        return Response.json({ status: "error", errors: ["draft erforderlich"] }, withCors({ status: 400 }));
       }
       supplier = draft.supplier || supplier;
       invoiceNo = draft.invoice_no || invoiceNo;
@@ -84,14 +89,14 @@ Deno.serve(async (req) => {
         line_no: item.line_no,
       }));
       if (!rows.length) {
-        return Response.json({ status: "error", errors: ["Keine Positionen im Review übermittelt."] }, { status: 400 });
+        return Response.json({ status: "error", errors: ["Keine Positionen im Review übermittelt."] }, withCors({ status: 400 }));
       }
       supplier = supplier || "Unknown Supplier";
       invoiceNo = invoiceNo || draft.invoice_no;
       invoiceDate = invoiceDate || draft.invoice_date;
     } else {
       if (!payload.file_base64) {
-        return Response.json({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, { status: 400 });
+        return Response.json({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, withCors({ status: 400 }));
       }
 
       const csv = b64decode(payload.file_base64);
@@ -105,7 +110,7 @@ Deno.serve(async (req) => {
         warnings.push("Unbekannter Supplier – generische CSV-Zuordnung versucht (Beyers-Layout).");
       }
 
-      if (!rows.length) return Response.json({ status: "error", errors: ["CSV leer"] }, { status: 400 });
+      if (!rows.length) return Response.json({ status: "error", errors: ["CSV leer"] }, withCors({ status: 400 }));
 
       // Header aus erster Zeile (CSV enthält ohnehin Kopf-Felder je Zeile)
       const hdr = rows[0];
@@ -144,7 +149,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (invDupErr) throw invDupErr;
     if (invDup?.id) {
-      return Response.json({ status: "error", errors: [`Rechnung ${invoiceNo} bei ${supplier} existiert bereits (id=${invDup.id}).`] }, { status: 409 });
+      return Response.json({ status: "error", errors: [`Rechnung ${invoiceNo} bei ${supplier} existiert bereits (id=${invDup.id}).`] }, withCors({ status: 409 }));
     }
 
     const manualFeedbackEntries = (payload.manual_feedback ?? []).filter((entry) =>
@@ -390,9 +395,9 @@ Deno.serve(async (req) => {
       items_imported: prepared.length,
       warnings,
       errors
-    });
+    }, withCors());
   } catch (e) {
     console.error("import-invoice error", e);
-    return Response.json({ status: "error", errors: [String(e?.message ?? e)] }, { status: 500 });
+    return Response.json({ status: "error", errors: [String(e?.message ?? e)] }, withCors({ status: 500 }));
   }
 });
