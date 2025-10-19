@@ -857,6 +857,11 @@ textarea:disabled {
   vertical-align: top;
 }
 
+.review-table th:nth-child(5),
+.review-table td:nth-child(5) {
+  min-width: 130px;
+}
+
 .review-table input,
 .review-table select {
   width: 100%;
