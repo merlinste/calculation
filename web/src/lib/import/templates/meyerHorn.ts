@@ -307,7 +307,12 @@ function collect(lines: string[]): InvoiceLineDraft[] {
     const parts = splitParts(line);
 
     const trimmed = line.trim();
-    if ((/^\d+\b/.test(trimmed) || /^\d{4,}/.test(parts[0] ?? "")) && parts.length >= 6) {
+    const firstToken = parts[0];
+    const numericPrefix = /^\d+\b/.test(trimmed) || /^\d{4,}/.test(firstToken ?? "");
+    const candidatePos = firstToken ? Number.parseInt(firstToken, 10) : Number.NaN;
+    const isSpecialCandidate = !Number.isNaN(candidatePos) && SPECIAL_SURCHARGE_POSITIONS.has(candidatePos);
+
+    if (numericPrefix && (parts.length >= 6 || isSpecialCandidate)) {
       buffer = line;
     } else if (buffer) {
       buffer = `${buffer} ${line}`;
