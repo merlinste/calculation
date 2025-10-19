@@ -6,6 +6,7 @@ type Product = {
   sku: string;
   name: string;
   ean: string | null;
+  supplier_item_number: string | null;
   category: string | null;
   base_uom: "piece" | "kg";
   pieces_per_tu: number | null;
@@ -20,6 +21,7 @@ type ProductUpsert = {
   sku: string;
   name: string;
   ean?: string | null;
+  supplier_item_number?: string | null;
   category?: string | null;
   base_uom?: Product["base_uom"];
   pieces_per_tu?: number | null;
@@ -32,6 +34,7 @@ type NewProductFormState = {
   sku: string;
   name: string;
   ean: string;
+  supplier_item_number: string;
   category: string;
   base_uom: Product["base_uom"];
   pieces_per_tu: string;
@@ -158,6 +161,9 @@ function parseProductsCsv(text: string) {
     if (headerSet.has("ean")) {
       product.ean = row.ean ? row.ean : null;
     }
+    if (headerSet.has("supplier_item_number")) {
+      product.supplier_item_number = row.supplier_item_number ? row.supplier_item_number : null;
+    }
     if (headerSet.has("category")) {
       product.category = row.category ? row.category : null;
     }
@@ -199,6 +205,7 @@ export default function Products() {
     sku: "",
     name: "",
     ean: "",
+    supplier_item_number: "",
     category: "",
     base_uom: "piece",
     pieces_per_tu: "",
@@ -214,7 +221,7 @@ export default function Products() {
     const { data, error } = await supabase
       .from("products")
       .select(
-        "id, sku, name, ean, category, base_uom, pieces_per_tu, units_per_carton, cartons_per_palette, active",
+        "id, sku, name, ean, supplier_item_number, category, base_uom, pieces_per_tu, units_per_carton, cartons_per_palette, active",
       )
       .order("id");
     if (error) {
@@ -234,6 +241,7 @@ export default function Products() {
       .update({
         name: product.name.trim(),
         ean: product.ean?.trim() || null,
+        supplier_item_number: product.supplier_item_number?.trim() || null,
         category: product.category?.trim() || null,
         base_uom: product.base_uom,
         pieces_per_tu: product.pieces_per_tu ?? null,
@@ -266,6 +274,7 @@ export default function Products() {
       sku: newProduct.sku.trim(),
       name: newProduct.name.trim(),
       ean: newProduct.ean.trim() || null,
+      supplier_item_number: newProduct.supplier_item_number.trim() || null,
       category: newProduct.category.trim() || null,
       base_uom: newProduct.base_uom,
       pieces_per_tu: newProduct.pieces_per_tu ? Number(newProduct.pieces_per_tu) : null,
@@ -282,6 +291,7 @@ export default function Products() {
         sku: "",
         name: "",
         ean: "",
+        supplier_item_number: "",
         category: "",
         base_uom: "piece",
         pieces_per_tu: "",
@@ -345,7 +355,7 @@ export default function Products() {
         <h2 className="section-title">Produkte per CSV importieren</h2>
         <p>
           Laden Sie eine CSV-Datei mit mindestens den Spalten <code>sku</code> und <code>name</code>. Optional
-          können Sie weitere Informationen wie <code>ean</code>, <code>category</code>,
+          können Sie weitere Informationen wie <code>ean</code>, <code>supplier_item_number</code>, <code>category</code>,
           <code>pieces_per_tu</code>, <code>units_per_carton</code> oder <code>cartons_per_palette</code> ergänzen.
         </p>
         <div className="form-grid">
@@ -393,6 +403,16 @@ export default function Products() {
               type="text"
               value={newProduct.ean}
               onChange={(event) => setNewProduct((state) => ({ ...state, ean: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Artikel-Nr. Lieferant</span>
+            <input
+              type="text"
+              value={newProduct.supplier_item_number}
+              onChange={(event) =>
+                setNewProduct((state) => ({ ...state, supplier_item_number: event.target.value }))
+              }
             />
           </label>
           <label>
@@ -477,6 +497,7 @@ export default function Products() {
                 <th>SKU</th>
                 <th>Name</th>
                 <th>EAN</th>
+                <th>Artikel-Nr. Lieferant</th>
                 <th>Kategorie</th>
                 <th>Basiseinheit</th>
                 <th>Stück pro TU</th>
@@ -512,6 +533,21 @@ export default function Products() {
                         setItems((state) =>
                           state.map((item) =>
                             item.id === product.id ? { ...item, ean: event.target.value || null } : item,
+                          ),
+                        )
+                      }
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      value={product.supplier_item_number ?? ""}
+                      onChange={(event) =>
+                        setItems((state) =>
+                          state.map((item) =>
+                            item.id === product.id
+                              ? { ...item, supplier_item_number: event.target.value || null }
+                              : item,
                           ),
                         )
                       }
