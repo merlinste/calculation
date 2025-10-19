@@ -93,6 +93,15 @@ export async function finalizePdfImport(
     const json = (await response.json()) as Record<string, unknown>;
     return { data: json };
   } catch (error) {
-    return { error: (error as Error).message };
+    const message = (() => {
+      if (error instanceof TypeError) {
+        const normalized = error.message.trim().toLowerCase();
+        if (normalized === "failed to fetch" || normalized === "fetch failed") {
+          return "Import-Service konnte nicht erreicht werden. Bitte prüfen Sie die Netzwerkverbindung oder die Supabase-Konfiguration.";
+        }
+      }
+      return (error as Error).message;
+    })();
+    return { error: message };
   }
 }
