@@ -30,7 +30,9 @@ export function toIsoDate(dateString: string | undefined | null): string {
 export function guessLineType(name: string): "product" | "surcharge" | "shipping" {
   const lower = name.toLowerCase();
   if (/versand|fracht|shipping|lieferung/.test(lower)) return "shipping";
-  if (/gebühr|fee|zuschlag|service|aufschlag|porto/.test(lower)) return "surcharge";
+  if (/gebühr|fee|zuschlag|service|aufschlag|porto|pauschale|umlage/.test(lower)) {
+    return "surcharge";
+  }
   return "product";
 }
 
