@@ -1,4 +1,4 @@
-import { supabase, functionsUrl } from "../supabase";
+import { supabase, functionsUrl, supabaseAnonKey } from "../supabase";
 import { withValidation } from "./utils";
 import type {
   InvoiceDraft,
@@ -74,7 +74,10 @@ export async function finalizePdfImport(
       manual_feedback: manualFeedback.length ? manualFeedback : undefined,
     };
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey,
+    };
     if (session?.access_token) {
       headers.Authorization = `Bearer ${session.access_token}`;
     }
