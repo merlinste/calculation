@@ -19,8 +19,10 @@ const VERSION = "2025-02-19";
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
 const HEADER_PATTERNS = {
-  invoiceNo: /(?:Rechnung|Invoice)\s*(?:Nr\.|No\.|Number)?\s*[:#]?\s*([A-Z0-9\-]+)/i,
-  invoiceDate: /(?:Rechnungsdatum|Invoice Date)[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
+  invoiceNo:
+    /(?:(?:Rechnung|Invoice)\s*(?:Nr\.|No\.|Number)?|(?:Nr\.|No\.|Number|Nummer))\s*[:#]?\s*([A-Z0-9\-\/]+)/i,
+  invoiceDate:
+    /(?:Rechnungsdatum|Invoice Date|Datum)[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
   gross: /(?:Bruttosumme|Gesamtbetrag|Total Due)[:#]?\s*([0-9.]+,[0-9]{2})/i,
 };
 
