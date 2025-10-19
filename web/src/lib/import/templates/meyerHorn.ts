@@ -162,7 +162,12 @@ function extractTable(lines: string[]): string[] {
 }
 
 function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): InvoiceLineDraft | null {
-  if (bufferParts.length < 6) return null;
+  const firstToken = bufferParts[0];
+  const looksLikePos = (value: string | undefined) => value != null && /^\d{1,5}$/.test(value.trim());
+  const candidatePos = looksLikePos(firstToken) ? Number.parseInt(firstToken!.trim(), 10) : fallbackLineNo;
+  const allowShortLine = SPECIAL_SURCHARGE_POSITIONS.has(candidatePos);
+
+  if (bufferParts.length < 6 && !allowShortLine) return null;
 
   const parts = [...bufferParts];
 
@@ -190,8 +195,7 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
     numericTail.unshift(popped.replace(/%$/, ""));
   }
 
-  const unitPriceRaw = numericTail.shift();
-  if (!unitPriceRaw) return null;
+  let unitPriceRaw = numericTail.shift();
 
   const isLikelyTax = (value: string | undefined) => {
     if (!value) return false;
@@ -209,8 +213,23 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
     }
   }
 
-  const uomRaw = parts.pop();
-  const qtyRaw = parts.pop();
+  let uomRaw = parts.pop();
+  let qtyRaw = parts.pop();
+
+  let usedSpecialFallback = false;
+
+  const isSpecialSurcharge = SPECIAL_SURCHARGE_POSITIONS.has(candidatePos);
+
+  if (!unitPriceRaw && isSpecialSurcharge) {
+    unitPriceRaw = lineTotalRaw;
+    usedSpecialFallback = true;
+  }
+
+  if ((!qtyRaw || !uomRaw) && isSpecialSurcharge) {
+    qtyRaw = qtyRaw ?? "1";
+    uomRaw = uomRaw ?? "STUECK";
+    usedSpecialFallback = true;
+  }
 
   if (!qtyRaw || !uomRaw || !unitPriceRaw) return null;
 
@@ -231,8 +250,6 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
   const first = headParts[0];
   const second = headParts[1];
 
-  const looksLikePos = (value: string | undefined) =>
-    value != null && /^\d{1,3}$/.test(value.trim());
   const looksLikeSku = (value: string | undefined) =>
     value != null && value.trim().length >= 3 && (/[0-9]/.test(value) || /[-/]/.test(value));
 
@@ -257,6 +274,9 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
   if (warning) issues.push(warning);
   if (!uom) {
     issues.push(`Mengeneinheit '${uomRaw}' als STUECK interpretiert`);
+  }
+  if (usedSpecialFallback) {
+    issues.push("Spezial-Zuschlag ohne vollständige Mengenangaben interpretiert");
   }
 
   let confidence = skuRaw ? 0.92 : 0.78;
