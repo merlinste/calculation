@@ -1,6 +1,7 @@
 import {
   defaultTaxRate,
   guessLineType,
+  mergeWarnings,
   normaliseNumber,
   toAllowedUom,
   toIsoDate,
@@ -13,7 +14,9 @@ import type {
   ParserFeedbackEntry,
 } from "../types";
 
-const VERSION = "2024-11-20";
+const VERSION = "2025-02-19";
+
+const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
 const HEADER_PATTERNS = {
   invoiceNo: /(?:Rechnung|Invoice)\s*(?:Nr\.|No\.|Number)?\s*[:#]?\s*([A-Z0-9\-]+)/i,
@@ -309,6 +312,62 @@ function collect(lines: string[]): InvoiceLineDraft[] {
   return items;
 }
 
+function adjustSpecialSurcharges(items: InvoiceLineDraft[]): {
+  items: InvoiceLineDraft[];
+  warnings: string[];
+} {
+  const containsSpecial = items.some((item) => SPECIAL_SURCHARGE_POSITIONS.has(item.line_no));
+  if (!containsSpecial) {
+    return { items, warnings: [] };
+  }
+
+  const totalKg = items
+    .filter((item) => item.line_type === "product" && item.uom === "KG")
+    .reduce((sum, item) => sum + item.qty, 0);
+
+  if (totalKg <= 0) {
+    const updatedItems = items.map((item) => {
+      if (!SPECIAL_SURCHARGE_POSITIONS.has(item.line_no)) return item;
+      const issues = Array.from(
+        new Set([...item.issues, "Zuschlag konnte mangels Kilomenge nicht verteilt werden"]),
+      );
+      return {
+        ...item,
+        line_type: "surcharge",
+        product_id: undefined,
+        product_sku: undefined,
+        uom: "KG",
+        issues,
+      } satisfies InvoiceLineDraft;
+    });
+    return {
+      items: updatedItems,
+      warnings: ["Energie- und Gaszuschlag ohne Kilogramm-Basis – bitte prüfen."],
+    };
+  }
+
+  const qtyKg = Number(totalKg.toFixed(3));
+  const updatedItems = items.map((item) => {
+    if (!SPECIAL_SURCHARGE_POSITIONS.has(item.line_no)) return item;
+    const lineTotal = item.line_total_net;
+    const unitPrice = qtyKg > 0 ? Number((lineTotal / totalKg).toFixed(4)) : item.unit_price_net;
+    return {
+      ...item,
+      line_type: "surcharge",
+      product_id: undefined,
+      product_sku: undefined,
+      qty: qtyKg,
+      uom: "KG",
+      unit_price_net: unitPrice,
+    } satisfies InvoiceLineDraft;
+  });
+
+  return {
+    items: updatedItems,
+    warnings: ["Energie- und Gaszuschläge auf Kilogramm umgerechnet"],
+  };
+}
+
 function normaliseDescription(value: string | undefined | null): string {
   if (!value) return "";
   return value
@@ -519,7 +578,8 @@ export function parseMeyerHornTemplate(
   const lines = cleanText(text);
   const table = extractTable(lines);
   const baseItems = collect(table);
-  const { items, warnings: feedbackWarnings } = applyFeedback(baseItems, feedback);
+  const { items: surchargeAdjusted, warnings: surchargeWarnings } = adjustSpecialSurcharges(baseItems);
+  const { items, warnings: feedbackWarnings } = applyFeedback(surchargeAdjusted, feedback);
   const meta = parseMeta(text);
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
@@ -540,7 +600,7 @@ export function parseMeyerHornTemplate(
       template: "Meyer & Horn PDF",
       version: VERSION,
       usedOcr: false,
-      warnings: feedbackWarnings,
+      warnings: mergeWarnings(feedbackWarnings, surchargeWarnings),
     },
     meta,
     warnings,
