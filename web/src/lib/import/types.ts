@@ -21,6 +21,28 @@ export type InvoiceLineDraft = {
   };
 };
 
+export type ParserFeedbackEntry = {
+  supplier: string;
+  detected_description: string;
+  detected_sku?: string | null;
+  assigned_product_id?: number | null;
+  assigned_product_sku?: string | null;
+  assigned_product_name?: string | null;
+  assigned_uom?: AllowedUom | null;
+  updated_at?: string | null;
+};
+
+export type ManualAssignmentPayload = {
+  lineNo: number;
+  supplier: string;
+  detectedDescription: string;
+  detectedSku?: string | null;
+  productId: number;
+  productSku?: string | null;
+  manualName?: string | null;
+  uom?: AllowedUom | null;
+};
+
 export type InvoiceDraftTotals = {
   net: number;
   tax: number;

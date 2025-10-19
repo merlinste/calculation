@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase, functionsUrl } from "../lib/supabase";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parsePdfInvoice } from "../lib/import/parsePdfInvoice";
-import type { InvoiceDraft, InvoiceLineDraft } from "../lib/import/types";
+import type { InvoiceDraft, InvoiceLineDraft, ManualAssignmentPayload } from "../lib/import/types";
 import { ALLOWED_UOMS, cloneDraft, withValidation } from "../lib/import/utils";
 import { useProductOptions } from "../lib/useProductOptions";
+import { fetchParserFeedback, finalizePdfImport } from "../lib/import/api";
 
 type ImportResult = Record<string, unknown> | null;
 
@@ -11,6 +11,10 @@ type MessageState = {
   text: string;
   tone: "info" | "success" | "danger";
 } | null;
+
+type ManualAssignmentState = ManualAssignmentPayload & {
+  productName?: string | null;
+};
 
 function confidenceClass(confidence: number) {
   if (confidence >= 0.85) return "confidence-pill confidence-pill--high";
@@ -38,6 +42,12 @@ export default function ImportWizard() {
   const [message, setMessage] = useState<MessageState>(null);
   const [parsing, setParsing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const manualCandidatesRef = useRef<Set<number>>(new Set());
+  const [manualAssignments, setManualAssignments] = useState<Record<number, ManualAssignmentState>>({});
+  const manualAssignmentList = useMemo(
+    () => Object.values(manualAssignments).sort((a, b) => a.lineNo - b.lineNo),
+    [manualAssignments],
+  );
   const {
     products: productOptions,
     loading: loadingProducts,
@@ -60,6 +70,28 @@ export default function ImportWizard() {
     });
     return { byId, bySku, byName };
   }, [productOptions]);
+
+  const setManualAssignment = useCallback((lineNo: number, assignment: ManualAssignmentState | null) => {
+    setManualAssignments((prev) => {
+      if (!assignment) {
+        if (!(lineNo in prev)) return prev;
+        const { [lineNo]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [lineNo]: assignment };
+    });
+  }, []);
+
+  const patchManualAssignment = useCallback(
+    (lineNo: number, patch: Partial<ManualAssignmentState>) => {
+      setManualAssignments((prev) => {
+        const current = prev[lineNo];
+        if (!current) return prev;
+        return { ...prev, [lineNo]: { ...current, ...patch } };
+      });
+    },
+    [],
+  );
 
   const hasUnsureLines = useMemo(
     () => draft?.items.some((line) => line.issues.length > 0 || line.confidence < 0.7) ?? false,
@@ -117,6 +149,8 @@ export default function ImportWizard() {
     setResult(null);
     setMessage(null);
     setLastParsedFile(null);
+    manualCandidatesRef.current = new Set();
+    setManualAssignments({});
   };
 
   const analyse = async (sourceFile?: File | null) => {
@@ -124,13 +158,17 @@ export default function ImportWizard() {
     if (!targetFile) return;
     setParsing(true);
     setMessage(null);
+    manualCandidatesRef.current = new Set();
+    setManualAssignments({});
 
     try {
+      const feedback = await fetchParserFeedback(supplier);
       const parsed = await parsePdfInvoice({
         supplier,
         file: targetFile,
         invoiceNoOverride: invoiceNo || undefined,
         invoiceDateOverride: invDate || undefined,
+        feedback,
       });
 
       const isReanalyse = lastParsedFile != null && targetFile === lastParsedFile;
@@ -149,6 +187,12 @@ export default function ImportWizard() {
       adjusted.invoice_date = nextInvoiceDate;
       const validated = withValidation(adjusted);
       const assigned = assignProducts(validated);
+
+      manualCandidatesRef.current = new Set(
+        assigned.items
+          .filter((line) => line.line_type === "product" && !line.product_sku)
+          .map((line) => line.line_no),
+      );
 
       setDraft(assigned);
       setLastParsedFile(targetFile);
@@ -199,21 +243,76 @@ export default function ImportWizard() {
     });
   };
 
+  const handleManualNameChange = (index: number, value: string) => {
+    const line = draft?.items[index];
+    const trimmed = value.trim();
+    updateLine(index, { product_name: trimmed ? trimmed : undefined });
+    if (line && manualCandidatesRef.current.has(line.line_no)) {
+      patchManualAssignment(line.line_no, { manualName: trimmed ? trimmed : null });
+    }
+  };
+
+  const handleUomChange = (index: number, value: InvoiceLineDraft["uom"]) => {
+    const line = draft?.items[index];
+    updateLine(index, { uom: value });
+    if (line && manualCandidatesRef.current.has(line.line_no)) {
+      patchManualAssignment(line.line_no, { uom: value });
+    }
+  };
+
+  const handleLineTypeChange = (index: number, value: InvoiceLineDraft["line_type"]) => {
+    const line = draft?.items[index];
+    updateLine(index, { line_type: value });
+    if (line && value !== "product" && manualCandidatesRef.current.has(line.line_no)) {
+      setManualAssignment(line.line_no, null);
+    }
+  };
+
   const handleProductSelect = (index: number, productId: number | null) => {
+    const line = draft?.items[index];
+    const isManualCandidate = line ? manualCandidatesRef.current.has(line.line_no) : false;
+    const detectedDescription = line ? (line.source?.raw ?? line.product_name ?? "").trim() : "";
+    const detectedSku = line?.product_sku ?? null;
+    const currentUom = line?.uom;
+
     if (productId == null) {
       updateLine(index, { product_id: undefined });
+      if (line && isManualCandidate) {
+        setManualAssignment(line.line_no, null);
+      }
       return;
     }
+
     const product = productLookup.byId.get(productId);
     if (!product) {
       updateLine(index, { product_id: undefined });
+      if (line && isManualCandidate) {
+        setManualAssignment(line.line_no, null);
+      }
       return;
     }
+
     updateLine(index, {
       product_id: product.id,
       product_sku: product.sku,
       product_name: product.name,
     });
+
+    if (line && isManualCandidate) {
+      const existing = manualAssignments[line.line_no];
+      const assignment: ManualAssignmentState = {
+        lineNo: line.line_no,
+        supplier: draft?.supplier || supplier,
+        detectedDescription,
+        detectedSku,
+        productId: product.id,
+        productSku: product.sku ?? null,
+        manualName: existing?.manualName ?? line.product_name ?? product.name ?? null,
+        uom: existing?.uom ?? currentUom ?? null,
+        productName: product.name ?? null,
+      };
+      setManualAssignment(line.line_no, assignment);
+    }
   };
 
   const submit = async () => {
@@ -222,33 +321,24 @@ export default function ImportWizard() {
     setMessage(null);
 
     try {
-      const sess = (await supabase.auth.getSession()).data.session;
-      const payload = {
-        mode: "finalize",
-        supplier: draft.supplier,
-        source: "pdf" as const,
-        options: { allocate_surcharges: alloc },
-        draft: withValidation(draft),
-      };
-
-      const res = await fetch(`${functionsUrl}/import-invoice`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${sess?.access_token}`,
-        },
-        body: JSON.stringify(payload),
+      const manualPayload = manualAssignmentList.map(({ productName, manualName, ...rest }) => ({
+        ...rest,
+        manualName: manualName ?? productName ?? null,
+      }));
+      const outcome = await finalizePdfImport({
+        draft,
+        allocation: alloc,
+        manualAssignments: manualPayload,
       });
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        setMessage({ text: errorText || "Import fehlgeschlagen.", tone: "danger" });
+      if (outcome.error) {
+        setMessage({ text: outcome.error, tone: "danger" });
         setResult(null);
-      } else {
-        const json = (await res.json()) as Record<string, unknown>;
-        setResult(json);
-        setMessage({ text: "Rechnung wurde gebucht.", tone: "success" });
+        return;
       }
+
+      setResult(outcome.data ?? {});
+      setMessage({ text: "Rechnung wurde gebucht.", tone: "success" });
     } catch (error) {
       setMessage({ text: (error as Error).message, tone: "danger" });
       setResult(null);
@@ -275,6 +365,15 @@ export default function ImportWizard() {
                 const value = event.target.value;
                 setSupplier(value);
                 setDraft((prev) => (prev ? { ...prev, supplier: value } : prev));
+                setManualAssignments((prev) => {
+                  if (!Object.keys(prev).length) return prev;
+                  const next: Record<number, ManualAssignmentState> = {};
+                  for (const [key, assignment] of Object.entries(prev)) {
+                    const lineNo = Number.parseInt(key, 10);
+                    next[lineNo] = { ...assignment, supplier: value };
+                  }
+                  return next;
+                });
               }}
             >
               {SUPPLIER_OPTIONS.map((option) => (
@@ -492,6 +591,16 @@ export default function ImportWizard() {
                               </option>
                             ))}
                           </select>
+                          {manualCandidatesRef.current.has(line.line_no) && !line.product_id ? (
+                            <div className="review-product-hint">SKU fehlt – bitte Produkt zuordnen.</div>
+                          ) : null}
+                          {manualAssignments[line.line_no] ? (
+                            <div className="review-product-hint">
+                              Speichert: {manualAssignments[line.line_no].productSku ?? "ohne SKU"}
+                              {" · "}
+                              {manualAssignments[line.line_no].manualName ?? manualAssignments[line.line_no].productName ?? ""}
+                            </div>
+                          ) : null}
                           {!line.product_id && (line.product_sku || line.product_name) ? (
                             <div className="review-product-hint">
                               Parser: {line.product_sku ? `${line.product_sku} · ` : ""}
@@ -517,7 +626,15 @@ export default function ImportWizard() {
                     </td>
                     <td>
                       {line.line_type === "product" ? (
-                        <div className="review-readonly">{line.product_name ?? "—"}</div>
+                        manualCandidatesRef.current.has(line.line_no) ? (
+                          <input
+                            value={line.product_name ?? ""}
+                            placeholder="Bezeichnung"
+                            onChange={(event) => handleManualNameChange(index, event.target.value)}
+                          />
+                        ) : (
+                          <div className="review-readonly">{line.product_name ?? "—"}</div>
+                        )
                       ) : (
                         <input
                           value={line.product_name ?? ""}
@@ -538,7 +655,9 @@ export default function ImportWizard() {
                     <td>
                       <select
                         value={line.uom}
-                        onChange={(event) => updateLine(index, { uom: event.target.value as InvoiceLineDraft["uom"] })}
+                        onChange={(event) =>
+                          handleUomChange(index, event.target.value as InvoiceLineDraft["uom"])
+                        }
                       >
                         {ALLOWED_UOMS.map((uom) => (
                           <option key={uom} value={uom}>
@@ -568,9 +687,10 @@ export default function ImportWizard() {
                       <select
                         value={line.line_type}
                         onChange={(event) =>
-                          updateLine(index, {
-                            line_type: event.target.value as InvoiceLineDraft["line_type"],
-                          })
+                          handleLineTypeChange(
+                            index,
+                            event.target.value as InvoiceLineDraft["line_type"],
+                          )
                         }
                       >
                         <option value="product">Produkt</option>
@@ -599,6 +719,21 @@ export default function ImportWizard() {
               </tbody>
             </table>
           </div>
+
+          {manualAssignmentList.length > 0 && (
+            <div className="callout callout--info">
+              <strong>Manuelle Zuordnungen:</strong>
+              <ul>
+                {manualAssignmentList.map((assignment) => (
+                  <li key={assignment.lineNo}>
+                    Pos. {assignment.lineNo}: {assignment.manualName ?? assignment.productName ?? "—"} →{" "}
+                    {assignment.productSku ?? "ohne SKU"} (ID {assignment.productId}
+                    {assignment.uom ? ` · ${assignment.uom}` : ""})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <footer className="review-footer">
             {hasUnsureLines && (
