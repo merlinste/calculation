@@ -1,5 +1,6 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useProductOptions } from "../lib/useProductOptions";
+import { useSupplierOptions } from "../lib/useSupplierOptions";
 
 type LineItem = {
   id: string;
@@ -18,13 +19,18 @@ const createLineItem = (id: number): LineItem => ({
 });
 
 export default function ManualInvoice() {
-  const [supplier, setSupplier] = useState("");
+  const [supplierId, setSupplierId] = useState<number | null>(null);
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
   const [lineItems, setLineItems] = useState<LineItem[]>([createLineItem(0)]);
   const [nextId, setNextId] = useState(1);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const { products, loading: loadingProducts, error: productsError } = useProductOptions();
+  const {
+    suppliers,
+    loading: loadingSuppliers,
+    error: suppliersError,
+  } = useSupplierOptions();
 
   const productMap = useMemo(() => {
     const map = new Map<number, { id: number; name: string; sku: string }>();
@@ -33,6 +39,14 @@ export default function ManualInvoice() {
     });
     return map;
   }, [products]);
+
+  const supplierMap = useMemo(() => {
+    const map = new Map<number, { id: number; name: string }>();
+    suppliers.forEach((supplier) => {
+      map.set(supplier.id, { id: supplier.id, name: supplier.name });
+    });
+    return map;
+  }, [suppliers]);
 
   const currencyFormatter = useMemo(
     () => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }),
@@ -68,7 +82,8 @@ export default function ManualInvoice() {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const payload = {
-      supplier,
+      supplierId,
+      supplierName: supplierId != null ? supplierMap.get(supplierId)?.name ?? null : null,
       invoiceNumber,
       invoiceDate,
       lineItems: lineItems.map((item, index) => {
@@ -108,12 +123,24 @@ export default function ManualInvoice() {
           <section className="form-grid two-columns">
             <label>
               <span>Lieferant</span>
-              <input
-                value={supplier}
-                onChange={(event) => setSupplier(event.target.value)}
-                placeholder="Lieferant oder Firma"
-                required
-              />
+              <select
+                value={supplierId != null ? String(supplierId) : ""}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSupplierId(value ? Number.parseInt(value, 10) : null);
+                }}
+                disabled={loadingSuppliers || !suppliers.length}
+                required={suppliers.length > 0}
+              >
+                <option value="" disabled>
+                  {loadingSuppliers ? "Lade Lieferanten…" : "Lieferant wählen"}
+                </option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               <span>Rechnungsnummer</span>
@@ -136,6 +163,19 @@ export default function ManualInvoice() {
 
           <section>
             <h2 className="section-title">Positionen</h2>
+            {suppliersError && (
+              <div className="callout callout--danger">
+                Lieferantenliste konnte nicht geladen werden: {suppliersError}
+              </div>
+            )}
+            {!loadingSuppliers && !suppliers.length && !suppliersError && (
+              <div className="callout callout--info">
+                Es sind noch keine Lieferanten vorhanden. Legen Sie zuerst Einträge unter <strong>
+                  Lieferanten
+                </strong>{" "}
+                an.
+              </div>
+            )}
             {productsError && (
               <div className="callout callout--danger">Produktliste konnte nicht geladen werden: {productsError}</div>
             )}
