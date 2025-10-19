@@ -70,10 +70,25 @@ export function mergeWarnings(...collections: Array<string | string[] | undefine
   return Array.from(new Set(joined.filter(Boolean)));
 }
 
+const SHIPPING_TAX_ISSUE = "Versand sollte mit 19 % besteuert werden";
+const PRODUCT_TAX_ISSUE = "Produktposition mit >7 % Steuer entdeckt";
+
+const RECALC_MANAGED_ISSUES = new Set([
+  "Artikelnummer fehlt",
+  "Produktname fehlt",
+  "Produktzuordnung fehlt",
+]);
+
+const isRecalcManagedIssue = (issue: string): boolean => {
+  if (RECALC_MANAGED_ISSUES.has(issue)) return true;
+  if (issue === SHIPPING_TAX_ISSUE || issue === PRODUCT_TAX_ISSUE) return true;
+  return /^Einheit .+ nicht zulässig$/.test(issue);
+};
+
 export function recalcTotals(draft: InvoiceDraft): InvoiceDraft {
   const items = draft.items.map((item, idx) => {
     const total = Number((item.qty * item.unit_price_net).toFixed(4));
-    const issues = [...item.issues];
+    const issues = item.issues.filter((issue) => !isRecalcManagedIssue(issue));
     let confidence = Math.max(0, Math.min(1, item.confidence));
 
     if (!item.product_sku) {
@@ -138,7 +153,9 @@ export function withValidation(draft: InvoiceDraft): InvoiceDraft {
   }
 
   const updatedItems = recomputed.items.map((item) => {
-    const issues = [...item.issues];
+    const issues = item.issues.filter(
+      (issue) => issue !== SHIPPING_TAX_ISSUE && issue !== PRODUCT_TAX_ISSUE,
+    );
     if (item.line_type === "shipping" && item.tax_rate_percent < 19) {
       issues.push("Versand sollte mit 19 % besteuert werden");
     }
