@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview --port 4173"
+    "preview": "vite preview --port 4173",
+    "test:meyerhorn": "esbuild scripts/test-meyerhorn-sample.ts --bundle --platform=node --format=esm --outfile=scripts/.tmp-meyerhorn.mjs && node scripts/.tmp-meyerhorn.mjs && node -e \"require('fs').rmSync('scripts/.tmp-meyerhorn.mjs', { force: true })\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
