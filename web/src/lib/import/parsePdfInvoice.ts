@@ -1,7 +1,7 @@
 import { extractPdfText } from "../pdf/extractText";
 import { ocrPdf } from "../pdf/ocr";
 import { mergeWarnings, withValidation, cloneDraft } from "./utils";
-import type { InvoiceDraft } from "./types";
+import type { InvoiceDraft, ParserFeedbackEntry } from "./types";
 import { parseBeyersTemplate } from "./templates/beyers";
 import { parseMeyerHornTemplate } from "./templates/meyerHorn";
 
@@ -10,15 +10,20 @@ export type ParsePdfOptions = {
   file: File;
   invoiceNoOverride?: string;
   invoiceDateOverride?: string;
+  feedback?: ParserFeedbackEntry[];
 };
 
 const MIN_TEXT_LENGTH = 20;
 
-function selectTemplate(text: string, supplier: string): InvoiceDraft {
+function selectTemplate(
+  text: string,
+  supplier: string,
+  feedback?: ParserFeedbackEntry[],
+): InvoiceDraft {
   const supplierLower = supplier.toLowerCase();
   if (supplierLower.includes("beyers")) return parseBeyersTemplate(text, supplier);
   if (supplierLower.includes("meyer") || supplierLower.includes("horn")) {
-    return parseMeyerHornTemplate(text, supplier);
+    return parseMeyerHornTemplate(text, supplier, feedback);
   }
   const fallback = parseBeyersTemplate(text, supplier);
   fallback.warnings.push("Lieferant unbekannt – Beyers-Template als Fallback verwendet.");
@@ -26,7 +31,7 @@ function selectTemplate(text: string, supplier: string): InvoiceDraft {
 }
 
 export async function parsePdfInvoice(options: ParsePdfOptions): Promise<InvoiceDraft> {
-  const { file, supplier, invoiceDateOverride, invoiceNoOverride } = options;
+  const { file, supplier, invoiceDateOverride, invoiceNoOverride, feedback } = options;
   const buffer = await file.arrayBuffer();
   const data = new Uint8Array(buffer);
   const extraction = await extractPdfText(data);
@@ -56,7 +61,7 @@ export async function parsePdfInvoice(options: ParsePdfOptions): Promise<Invoice
     extractionWarnings.push("PDF enthält keinen lesbaren Text");
   }
 
-  const draft = selectTemplate(text, supplier);
+  const draft = selectTemplate(text, supplier, feedback);
   draft.parser.usedOcr = usedOcr;
   draft.parser.warnings = mergeWarnings(draft.parser.warnings, extractionWarnings);
   if (invoiceNoOverride) draft.invoice_no = invoiceNoOverride;

@@ -9,6 +9,7 @@ export type ImportPayload = {
   file_url?: string;      // optional (später)
   options?: { allocate_surcharges?: "per_kg" | "per_piece" | "none" };
   draft?: InvoiceDraft;
+  manual_feedback?: ManualFeedbackInput[];
 };
 
 export type ImportRow = {
@@ -60,4 +61,15 @@ export type InvoiceDraft = {
   warnings: string[];
   errors: string[];
   items: InvoiceDraftLine[];
+};
+
+export type ManualFeedbackInput = {
+  supplier?: string;
+  line_no?: number;
+  detected_description: string;
+  detected_sku?: string | null;
+  product_id?: number | null;
+  product_sku?: string | null;
+  manual_name?: string | null;
+  uom?: "KG" | "TU" | "STUECK" | null;
 };

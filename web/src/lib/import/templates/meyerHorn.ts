@@ -1,5 +1,17 @@
-import { defaultTaxRate, guessLineType, normaliseNumber, toAllowedUom, toIsoDate, withValidation } from "../utils";
-import type { InvoiceDraft, InvoiceLineDraft, InvoiceMetaField } from "../types";
+import {
+  defaultTaxRate,
+  guessLineType,
+  normaliseNumber,
+  toAllowedUom,
+  toIsoDate,
+  withValidation,
+} from "../utils";
+import type {
+  InvoiceDraft,
+  InvoiceLineDraft,
+  InvoiceMetaField,
+  ParserFeedbackEntry,
+} from "../types";
 
 const VERSION = "2024-11-15";
 
@@ -35,7 +47,7 @@ const META_PATTERNS: Array<{
   },
 ];
 
-const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?/i;
+const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?|Artikel-?Nr\.?\s+Lieferant|Nr\.?\s+Beschreibung/i;
 
 function cleanText(text: string): string[] {
   return text
@@ -80,39 +92,105 @@ function extractTable(lines: string[]): string[] {
   return end === -1 ? body : body.slice(0, end);
 }
 
+const NUMERIC_FIELD_REGEX = /^-?(?:\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[,\.]\d+)?$/;
+
 function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): InvoiceLineDraft | null {
   if (bufferParts.length < 6) return null;
-  const pos = Number.parseInt(bufferParts[0], 10);
-  const sku = bufferParts[1];
-  const qtyRaw = bufferParts[bufferParts.length - 4];
-  const uomRaw = bufferParts[bufferParts.length - 3];
-  const unitPriceRaw = bufferParts[bufferParts.length - 2];
-  const lineTotalRaw = bufferParts[bufferParts.length - 1];
-  const name = bufferParts.slice(2, bufferParts.length - 4).join(" ");
+
+  const parts = [...bufferParts];
+  const lineTotalRaw = parts.pop();
+  if (!lineTotalRaw) return null;
+
+  const numericTail: string[] = [];
+  while (parts.length > 0) {
+    const candidate = parts[parts.length - 1];
+    if (!candidate) break;
+    const cleaned = candidate.replace(/[A-Za-z%]/g, "");
+    if (!NUMERIC_FIELD_REGEX.test(cleaned)) {
+      break;
+    }
+    const popped = parts.pop()!;
+    numericTail.unshift(popped.replace(/%$/, ""));
+  }
+
+  const unitPriceRaw = numericTail.shift();
+  if (!unitPriceRaw) return null;
+
+  const isLikelyTax = (value: string | undefined) => {
+    if (!value) return false;
+    const normalised = normaliseNumber(value);
+    if (Number.isNaN(normalised)) return false;
+    const rounded = Math.round(normalised);
+    return Math.abs(normalised - rounded) < 0.001 && rounded >= 0 && rounded <= 25;
+  };
+
+  let taxRateRaw: string | undefined;
+  if (numericTail.length) {
+    const last = numericTail[numericTail.length - 1];
+    if (isLikelyTax(last)) {
+      taxRateRaw = numericTail.pop();
+    }
+  }
+
+  const uomRaw = parts.pop();
+  const qtyRaw = parts.pop();
+
+  if (!qtyRaw || !uomRaw || !unitPriceRaw) return null;
 
   const qty = normaliseNumber(qtyRaw);
   const { uom, warning } = toAllowedUom(uomRaw);
   if (!uom) return null;
   const unitPrice = normaliseNumber(unitPriceRaw);
   const lineTotal = normaliseNumber(lineTotalRaw, 2);
+
+  const taxRate = taxRateRaw ? normaliseNumber(taxRateRaw) : null;
+
+  const headParts = parts;
+
+  let posRaw: string | undefined;
+  let skuRaw: string | undefined;
+  let descriptionParts: string[] = headParts;
+
+  const first = headParts[0];
+  const second = headParts[1];
+
+  const looksLikePos = (value: string | undefined) =>
+    value != null && /^\d{1,3}$/.test(value.trim());
+  const looksLikeSku = (value: string | undefined) =>
+    value != null && /[A-Za-z0-9]/.test(value) && value.length >= 3;
+
+  if (looksLikePos(first) && looksLikeSku(second)) {
+    [posRaw, skuRaw] = headParts.slice(0, 2);
+    descriptionParts = headParts.slice(2);
+  } else if (looksLikePos(first) && !looksLikeSku(second)) {
+    posRaw = first;
+    descriptionParts = headParts.slice(1);
+  } else if (looksLikeSku(first)) {
+    skuRaw = first;
+    descriptionParts = headParts.slice(1);
+  }
+
+  const pos = posRaw ? Number.parseInt(posRaw, 10) : fallbackLineNo;
+  const name = descriptionParts.join(" ");
   const lineType = guessLineType(name);
-  const taxRate = lineType === "shipping" ? 19 : defaultTaxRate(lineType);
+  const effectiveTax =
+    lineType === "shipping" ? 19 : taxRate != null && !Number.isNaN(taxRate) ? taxRate : defaultTaxRate(lineType);
 
   const issues: string[] = [];
   if (warning) issues.push(warning);
 
-  let confidence = sku ? 0.9 : 0.75;
+  let confidence = skuRaw ? 0.92 : 0.78;
   if (issues.length) confidence = Math.min(confidence, 0.7);
 
   return {
     line_no: Number.isNaN(pos) ? fallbackLineNo : pos,
     line_type: lineType,
-    product_sku: sku || undefined,
+    product_sku: skuRaw || undefined,
     product_name: name || undefined,
     qty,
     uom,
     unit_price_net: unitPrice,
-    tax_rate_percent: taxRate,
+    tax_rate_percent: effectiveTax,
     line_total_net: lineTotal,
     confidence,
     issues,
@@ -129,7 +207,8 @@ function collect(lines: string[]): InvoiceLineDraft[] {
     const current = line.replace(/\t+/g, "\t").replace(/\s{2,}/g, "\t");
     const parts = current.split("\t").map((part) => part.trim()).filter(Boolean);
 
-    if (/^\d+\s/.test(line) && parts.length >= 6) {
+    const trimmed = line.trim();
+    if ((/^\d+\b/.test(trimmed) || /^\d{4,}/.test(parts[0] ?? "")) && parts.length >= 6) {
       buffer = line;
     } else if (buffer) {
       buffer = `${buffer} ${line}`;
@@ -166,11 +245,217 @@ function collect(lines: string[]): InvoiceLineDraft[] {
   return items;
 }
 
-export function parseMeyerHornTemplate(text: string, supplier: string): InvoiceDraft {
+function normaliseDescription(value: string | undefined | null): string {
+  if (!value) return "";
+  return value
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function normaliseSku(value: string | undefined | null): string {
+  return value ? value.trim().toLowerCase() : "";
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  const aLen = a.length;
+  const bLen = b.length;
+  if (aLen === 0) return bLen;
+  if (bLen === 0) return aLen;
+
+  const matrix: number[][] = Array.from({ length: aLen + 1 }, () => new Array<number>(bLen + 1).fill(0));
+  for (let i = 0; i <= aLen; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= bLen; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i <= aLen; i += 1) {
+    for (let j = 1; j <= bLen; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+    }
+  }
+
+  return matrix[aLen][bLen];
+}
+
+type FeedbackLookup = {
+  bySku: Map<string, ParserFeedbackEntry[]>;
+  byCombined: Map<string, ParserFeedbackEntry[]>;
+  byDescription: Map<string, ParserFeedbackEntry[]>;
+  entries: ParserFeedbackEntry[];
+};
+
+function buildFeedbackLookup(feedback: ParserFeedbackEntry[] | undefined): FeedbackLookup {
+  const bySku = new Map<string, ParserFeedbackEntry[]>();
+  const byCombined = new Map<string, ParserFeedbackEntry[]>();
+  const byDescription = new Map<string, ParserFeedbackEntry[]>();
+  const entries: ParserFeedbackEntry[] = [];
+
+  for (const entry of feedback ?? []) {
+    const descKey = normaliseDescription(entry.detected_description);
+    const skuKey = normaliseSku(entry.detected_sku);
+    if (!descKey && !skuKey) continue;
+
+    if (skuKey) {
+      if (!bySku.has(skuKey)) bySku.set(skuKey, []);
+      bySku.get(skuKey)!.push(entry);
+    }
+
+    if (descKey) {
+      const combinedKey = `${descKey}__${skuKey}`;
+      if (!byCombined.has(combinedKey)) byCombined.set(combinedKey, []);
+      byCombined.get(combinedKey)!.push(entry);
+
+      if (!byDescription.has(descKey)) byDescription.set(descKey, []);
+      byDescription.get(descKey)!.push(entry);
+    }
+
+    entries.push(entry);
+  }
+
+  return { bySku, byCombined, byDescription, entries };
+}
+
+function pickPreferredEntry(entries: ParserFeedbackEntry[] | undefined): ParserFeedbackEntry | null {
+  if (!entries?.length) return null;
+  return entries.reduce<ParserFeedbackEntry | null>((best, entry) => {
+    if (!best) return entry;
+    const bestHasProduct = best.assigned_product_id != null;
+    const entryHasProduct = entry.assigned_product_id != null;
+    if (bestHasProduct !== entryHasProduct) {
+      return entryHasProduct ? entry : best;
+    }
+    const bestTs = best.updated_at ? Date.parse(best.updated_at) : 0;
+    const entryTs = entry.updated_at ? Date.parse(entry.updated_at) : 0;
+    return entryTs > bestTs ? entry : best;
+  }, null);
+}
+
+type FeedbackMatch = {
+  entry: ParserFeedbackEntry;
+  strategy: "sku" | "combined" | "description" | "fuzzy";
+};
+
+function findFeedbackMatch(
+  line: InvoiceLineDraft,
+  lookup: FeedbackLookup,
+): FeedbackMatch | null {
+  if (lookup.entries.length === 0) return null;
+  const sourceKey = normaliseDescription(line.source?.raw);
+  const nameKey = normaliseDescription(line.product_name);
+  const skuKey = normaliseSku(line.product_sku);
+
+  if (skuKey) {
+    const match = pickPreferredEntry(lookup.bySku.get(skuKey));
+    if (match) return { entry: match, strategy: "sku" };
+  }
+
+  const candidateKeys = [sourceKey, nameKey].filter(Boolean);
+
+  for (const key of candidateKeys) {
+    const match = pickPreferredEntry(lookup.byCombined.get(`${key}__${skuKey}`));
+    if (match) return { entry: match, strategy: "combined" };
+  }
+
+  for (const key of candidateKeys) {
+    const match = pickPreferredEntry(lookup.byDescription.get(key));
+    if (match) return { entry: match, strategy: "description" };
+  }
+
+  if (!candidateKeys.length) return null;
+
+  let best: { entry: ParserFeedbackEntry; distance: number } | null = null;
+  for (const entry of lookup.entries) {
+    const entryKey = normaliseDescription(entry.detected_description);
+    if (!entryKey) continue;
+    for (const key of candidateKeys) {
+      const distance = levenshteinDistance(key, entryKey);
+      const threshold = Math.max(2, Math.floor(Math.max(key.length, entryKey.length) * 0.2));
+      if (distance <= threshold && (!best || distance < best.distance)) {
+        best = { entry, distance };
+      }
+    }
+  }
+
+  if (!best) return null;
+  return { entry: best.entry, strategy: "fuzzy" };
+}
+
+function applyFeedback(
+  baseItems: InvoiceLineDraft[],
+  feedback: ParserFeedbackEntry[] | undefined,
+): { items: InvoiceLineDraft[]; warnings: string[] } {
+  if (!feedback?.length) return { items: baseItems, warnings: [] };
+
+  const lookup = buildFeedbackLookup(feedback);
+  let applied = 0;
+  let fuzzyMatches = 0;
+
+  const items = baseItems.map((item) => {
+    if (item.line_type !== "product") return item;
+    const match = findFeedbackMatch(item, lookup);
+    if (!match) return item;
+
+    const alreadyApplied =
+      (match.entry.assigned_product_id == null || item.product_id === match.entry.assigned_product_id) &&
+      (match.entry.assigned_product_sku == null || item.product_sku === match.entry.assigned_product_sku) &&
+      (match.entry.assigned_product_name == null || item.product_name === match.entry.assigned_product_name) &&
+      (match.entry.assigned_uom == null || item.uom === match.entry.assigned_uom);
+    if (alreadyApplied) return item;
+
+    applied += 1;
+    if (match.strategy === "fuzzy") fuzzyMatches += 1;
+
+    const updated: InvoiceLineDraft = {
+      ...item,
+      confidence: Math.max(item.confidence, match.strategy === "fuzzy" ? 0.9 : 0.96),
+      issues: Array.from(new Set([...item.issues, "manuell zugeordnet"])),
+    };
+
+    if (match.strategy === "fuzzy") {
+      updated.issues = Array.from(new Set([...updated.issues, "unscharfer Abgleich"]));
+    }
+
+    if (match.entry.assigned_product_id != null) {
+      updated.product_id = match.entry.assigned_product_id;
+    }
+    if (match.entry.assigned_product_sku) {
+      updated.product_sku = match.entry.assigned_product_sku;
+    }
+    if (match.entry.assigned_product_name) {
+      updated.product_name = match.entry.assigned_product_name;
+    }
+    if (match.entry.assigned_uom) {
+      updated.uom = match.entry.assigned_uom;
+    }
+
+    return updated;
+  });
+
+  const warnings: string[] = [];
+  if (applied > 0) warnings.push("manuell zugeordnet");
+  if (fuzzyMatches > 0) warnings.push("unscharfer Feedback-Abgleich");
+
+  return { items, warnings: Array.from(new Set(warnings)) };
+}
+
+export function parseMeyerHornTemplate(
+  text: string,
+  supplier: string,
+  feedback?: ParserFeedbackEntry[],
+): InvoiceDraft {
   const header = parseHeader(text);
   const lines = cleanText(text);
   const table = extractTable(lines);
-  const items = collect(table);
+  const baseItems = collect(table);
+  const { items, warnings: feedbackWarnings } = applyFeedback(baseItems, feedback);
   const meta = parseMeta(text);
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
@@ -191,7 +476,7 @@ export function parseMeyerHornTemplate(text: string, supplier: string): InvoiceD
       template: "Meyer & Horn PDF",
       version: VERSION,
       usedOcr: false,
-      warnings: [],
+      warnings: feedbackWarnings,
     },
     meta,
     warnings,
