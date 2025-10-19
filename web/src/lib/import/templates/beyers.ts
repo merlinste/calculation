@@ -1,4 +1,12 @@
-import { defaultTaxRate, guessLineType, normaliseNumber, toAllowedUom, toIsoDate, withValidation } from "../utils";
+import {
+  ALLOWED_UOMS,
+  defaultTaxRate,
+  guessLineType,
+  normaliseNumber,
+  toAllowedUom,
+  toIsoDate,
+  withValidation,
+} from "../utils";
 import type { InvoiceDraft, InvoiceLineDraft } from "../types";
 
 const VERSION = "2024-11-15";
@@ -10,6 +18,130 @@ const HEADER_PATTERNS = {
 };
 
 const TABLE_HEADER_REGEX = /(Pos(?:ition)?|Pos\.)\s+Art(?:ikel)?-?Nr\.?/i;
+const UOM_HINTS = new Set<string>([...ALLOWED_UOMS, "ST", "STK", "STUEK", "STCK", "CT", "CTN", "BOX", "PKG"]);
+
+function cleanToken(token: string): string {
+  const trimmed = token.replace(/[\s\u00A0]+/g, " ").trim();
+  if (!trimmed) return "";
+  if (/^-?\d+(?:[.,]\d+)?%?$/.test(trimmed)) return trimmed;
+  return trimmed.replace(/[.,;:]+$/g, "");
+}
+
+function normaliseUomValue(token: string): string {
+  return token
+    .replace(/[.,;:]/g, "")
+    .replace(/Ä/g, "AE")
+    .replace(/ä/g, "ae")
+    .replace(/Ö/g, "OE")
+    .replace(/ö/g, "oe")
+    .replace(/Ü/g, "UE")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
+}
+
+function isUomToken(token: string): boolean {
+  const cleaned = normaliseUomValue(token).toUpperCase();
+  if (!cleaned) return false;
+  if (UOM_HINTS.has(cleaned)) return true;
+  return cleaned.length <= 4 && /^[A-Z]+$/.test(cleaned);
+}
+
+function dropTrailing(tokens: string[], predicate: (token: string) => boolean): void {
+  while (tokens.length > 0 && predicate(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+}
+
+function takeTrailingNumber(tokens: string[]): string | null {
+  for (let idx = tokens.length - 1; idx >= 0; idx -= 1) {
+    const token = tokens[idx];
+    const normalised = token.replace(/[€$]/g, "");
+    if (/^-?\d+(?:[.,]\d+)?$/.test(normalised)) {
+      tokens.splice(idx, 1);
+      return normalised;
+    }
+    if (/^-?\d+(?:[.,]\d+)?%$/.test(normalised) || /^(?:EUR|EURO|€)$/i.test(normalised)) {
+      tokens.splice(idx, 1);
+    }
+  }
+  return null;
+}
+
+function takeTrailingTax(tokens: string[]): string | null {
+  for (let idx = tokens.length - 1; idx >= 0; idx -= 1) {
+    const token = tokens[idx];
+    if (/^-?\d+(?:[.,]\d+)?%$/.test(token)) {
+      tokens.splice(idx, 1);
+      return token;
+    }
+    if (/^(?:VAT|BTW)$/i.test(token) || token === "%") {
+      tokens.splice(idx, 1);
+    }
+  }
+  return null;
+}
+
+function takeTrailingUom(tokens: string[]): string | null {
+  for (let idx = tokens.length - 1; idx >= 0; idx -= 1) {
+    const token = tokens[idx];
+    if (isUomToken(token)) {
+      tokens.splice(idx, 1);
+      return normaliseUomValue(token);
+    }
+    if (/^(?:per|pro)$/i.test(token) || token === "/") {
+      tokens.splice(idx, 1);
+    }
+  }
+  return null;
+}
+
+function trimTrailingListPrice(tokens: string[]): void {
+  while (tokens.length >= 3) {
+    const last = tokens[tokens.length - 1];
+    const middle = tokens[tokens.length - 2];
+    const first = tokens[tokens.length - 3];
+
+    if (
+      isUomToken(last) &&
+      /^(?:per|pro)$/i.test(middle) &&
+      /^\d+(?:[.,]\d+)?$/.test(first)
+    ) {
+      tokens.splice(tokens.length - 3, 3);
+      continue;
+    }
+
+    if (
+      isUomToken(last) &&
+      middle === "/" &&
+      /^\d+(?:[.,]\d+)?$/.test(first)
+    ) {
+      tokens.splice(tokens.length - 3, 3);
+      continue;
+    }
+
+    if (
+      tokens.length >= 4 &&
+      isUomToken(last) &&
+      middle === "/" &&
+      /^(?:EUR|EURO|€)$/i.test(first) &&
+      /^\d+(?:[.,]\d+)?$/.test(tokens[tokens.length - 4])
+    ) {
+      tokens.splice(tokens.length - 4, 4);
+      continue;
+    }
+
+    break;
+  }
+
+  while (tokens.length > 0) {
+    const last = tokens[tokens.length - 1];
+    if (/^\d+(?:[.,]\d+)?\/[A-Za-zÄÖÜß]{1,10}$/i.test(last)) {
+      tokens.pop();
+      continue;
+    }
+    break;
+  }
+}
 
 function sanitiseLines(text: string): string[] {
   return text
@@ -37,27 +169,56 @@ function sliceTable(lines: string[]): string[] {
   return endIdx === -1 ? body : body.slice(0, endIdx);
 }
 
-function buildLine(columns: string[], raw: string, lineNo: number): InvoiceLineDraft | null {
-  if (columns.length < 6) return null;
+function buildLine(raw: string, lineNo: number): InvoiceLineDraft | null {
+  const tokens = raw
+    .replace(/[\u00A0]/g, " ")
+    .split(/\s+/)
+    .map(cleanToken)
+    .filter(Boolean);
 
-  const pos = Number.parseInt(columns[0], 10);
+  if (tokens.length < 5) return null;
+
+  const posToken = tokens.shift() ?? "";
+  const pos = Number.parseInt(posToken, 10);
   if (Number.isNaN(pos)) return null;
 
-  const sku = columns[1];
-  const qtyRaw = columns[columns.length - 4];
-  const uomRaw = columns[columns.length - 3];
-  const unitPriceRaw = columns[columns.length - 2];
-  const lineTotalRaw = columns[columns.length - 1];
-  const nameParts = columns.slice(2, columns.length - 4);
+  const sku = tokens.shift() ?? "";
 
-  const name = nameParts.join(" ").replace(/\s+/g, " ");
-  const qty = normaliseNumber(qtyRaw);
+  const working = [...tokens];
+
+  dropTrailing(working, (token) => !token || token === "-" || token === "—");
+
+  const lineTotalRaw = takeTrailingNumber(working);
+  if (!lineTotalRaw) return null;
+  const lineTotal = normaliseNumber(lineTotalRaw, 2);
+
+  const taxRaw = takeTrailingTax(working);
+
+  dropTrailing(working, (token) => /^(?:EUR|EURO|€)$/i.test(token));
+
+  const unitPriceRaw = takeTrailingNumber(working);
+  if (!unitPriceRaw) return null;
+  const unitPrice = normaliseNumber(unitPriceRaw);
+
+  dropTrailing(working, (token) =>
+    token === "/" || /^(?:EUR|EURO|€|per|pro)$/i.test(token),
+  );
+
+  const uomRaw = takeTrailingUom(working);
+  if (!uomRaw) return null;
   const { uom, warning } = toAllowedUom(uomRaw);
   if (!uom) return null;
-  const unitPrice = normaliseNumber(unitPriceRaw);
-  const lineTotal = normaliseNumber(lineTotalRaw, 2);
+
+  const qtyRaw = takeTrailingNumber(working);
+  if (!qtyRaw) return null;
+  const qty = normaliseNumber(qtyRaw);
+
+  trimTrailingListPrice(working);
+  dropTrailing(working, (token) => /^(?:EUR|EURO|€)$/i.test(token));
+
+  const name = working.join(" ").replace(/\s+/g, " ");
   const lineType = guessLineType(name);
-  const taxRate = defaultTaxRate(lineType);
+  const taxRate = taxRaw ? normaliseNumber(taxRaw.replace(/%/g, ""), 2) : defaultTaxRate(lineType);
 
   const issues: string[] = [];
   if (warning) {
@@ -88,30 +249,23 @@ function collectTableLines(lines: string[]): InvoiceLineDraft[] {
   let lineNo = 1;
 
   for (const line of lines) {
-    const collapsed = line.replace(/\s{2,}/g, "\t");
-    const parts = collapsed.split("\t").map((part) => part.trim()).filter(Boolean);
-
-    if (/^\d+\s/.test(line) && parts.length >= 6) {
-      if (buffer) buffer = `${buffer} ${line}`;
-      else buffer = line;
+    const trimmed = line.trim();
+    if (/^\d+\s/.test(trimmed)) {
+      if (buffer) {
+        const parsed = buildLine(buffer, lineNo);
+        if (parsed) {
+          records.push(parsed);
+          lineNo += 1;
+        }
+      }
+      buffer = trimmed;
     } else if (buffer) {
-      buffer = `${buffer} ${line}`;
-    } else {
-      continue;
-    }
-
-    const bufferParts = buffer.replace(/\s{2,}/g, "\t").split("\t").map((p) => p.trim()).filter(Boolean);
-    const parsed = buildLine(bufferParts, buffer, lineNo);
-    if (parsed) {
-      records.push(parsed);
-      buffer = null;
-      lineNo += 1;
+      buffer = `${buffer} ${trimmed}`;
     }
   }
 
   if (buffer) {
-    const bufferParts = buffer.replace(/\s{2,}/g, "\t").split("\t").map((p) => p.trim()).filter(Boolean);
-    const parsed = buildLine(bufferParts, buffer, lineNo);
+    const parsed = buildLine(buffer, lineNo);
     if (parsed) records.push(parsed);
   }
 
@@ -122,7 +276,12 @@ export function parseBeyersTemplate(text: string, supplier: string): InvoiceDraf
   const header = parseHeader(text);
   const lines = sanitiseLines(text);
   const tableLines = sliceTable(lines);
-  const items = collectTableLines(tableLines);
+  let items = collectTableLines(tableLines);
+
+  if (items.length === 0) {
+    const fallbackCandidates = lines.filter((line) => /^\d+\s+\S+/.test(line.trim()));
+    items = collectTableLines(fallbackCandidates);
+  }
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
 
