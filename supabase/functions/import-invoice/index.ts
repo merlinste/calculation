@@ -392,6 +392,7 @@ Deno.serve(async (req) => {
       errors
     });
   } catch (e) {
-    return new Response(JSON.stringify({ status: "error", errors: [String(e?.message ?? e)] }), { status: 500 });
+    console.error("import-invoice error", e);
+    return Response.json({ status: "error", errors: [String(e?.message ?? e)] }, { status: 500 });
   }
 });
