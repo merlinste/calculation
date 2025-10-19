@@ -1,8 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL!,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!
-);
+const stripTrailingSlashes = (value: string) => value.replace(/\/+$/, "");
 
-export const functionsUrl = (import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ?? "").replace(/\/+$/,'');
+const supabaseUrl = stripTrailingSlashes(import.meta.env.VITE_SUPABASE_URL!);
+
+export const supabase = createClient(supabaseUrl, import.meta.env.VITE_SUPABASE_ANON_KEY!);
+
+const configuredFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+
+export const functionsUrl =
+  configuredFunctionsUrl && configuredFunctionsUrl.trim().length
+    ? stripTrailingSlashes(configuredFunctionsUrl)
+    : `${supabaseUrl}/functions/v1`;
