@@ -1,0 +1,12 @@
+Meyer & Horn GmbH
+Rechnung Nr. 2025-08-26-007
+Rechnungsdatum 26.08.2025
+
+Nr.
+Beschreibung
+Menge    Einheit    Einzelpreis Netto    Gesamt Netto
+1    Espresso Bohnen 1kg    10    KG    9,80    98,00
+2    Filterkaffee 500g    20    PK    4,20    84,00
+3    Versandpauschale    1    STUECK    24,00    24,00
+Summe Netto 206,00
+Rechnungsbetrag 206,00

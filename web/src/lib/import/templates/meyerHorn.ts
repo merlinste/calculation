@@ -47,7 +47,10 @@ const META_PATTERNS: Array<{
   },
 ];
 
-const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?|Artikel-?Nr\.?\s+Lieferant|Nr\.?\s+Beschreibung/i;
+const TABLE_HEADER_REGEX =
+  /(?:pos\.?\s*(?:nr\.|no\.)?|art\.?\s*nr\.?|artikel-?nr\.?|nr\.?|beschreibung|bezeichnung|menge|anzahl|qty|einheit|einh\.|stk\.?|einzelpreis|preis|betrag|gesamt|summe|total|\bEP\b)/i;
+
+const NUMERIC_FIELD_REGEX = /^-?(?:\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[,\.]\d+)?$/;
 
 function cleanText(text: string): string[] {
   return text
@@ -84,15 +87,71 @@ function parseMeta(text: string): InvoiceMetaField[] {
   return meta;
 }
 
+function looksLikeHeader(text: string): boolean {
+  if (!text) return false;
+  const normalised = text.replace(/\s+/g, " ");
+  const hasPosition = /\b(?:pos(?:ition)?\.?|nr\.?|no\.)\b/i.test(normalised);
+  const hasDescription = /\b(?:artikel|beschreibung|bezeichnung)\b/i.test(normalised);
+  const hasQtyOrUnit =
+    /\b(?:menge|anzahl|qty|einheit|einh\.|stk\.?|st[üu]ck)\b/i.test(normalised);
+  const hasPriceOrTotal =
+    /\b(?:einzelpreis|stk-?preis|preis|betrag|gesamt|summe|total|netto|\bEP\b)\b/i.test(normalised);
+  return hasPosition && hasDescription && hasQtyOrUnit && hasPriceOrTotal;
+}
+
+function looksLikeLineStart(line: string): boolean {
+  const trimmed = line.trim();
+  if (!/^\d+/.test(trimmed)) return false;
+
+  const parts = line
+    .replace(/\t+/g, "\t")
+    .replace(/\s{2,}/g, "\t")
+    .split("\t")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length < 4) return false;
+
+  let numericFields = 0;
+  for (const part of parts.slice(1)) {
+    const cleaned = part.replace(/[A-Za-z%]/g, "");
+    if (cleaned && NUMERIC_FIELD_REGEX.test(cleaned)) {
+      numericFields += 1;
+    }
+  }
+
+  return numericFields >= 2;
+}
+
 function extractTable(lines: string[]): string[] {
-  const start = lines.findIndex((line) => TABLE_HEADER_REGEX.test(line));
-  if (start === -1) return [];
-  const body = lines.slice(start + 1);
+  const MAX_HEADER_SPAN = 4;
+  let headerEnd = -1;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    let aggregated = "";
+    for (let offset = 0; offset < MAX_HEADER_SPAN && i + offset < lines.length; offset += 1) {
+      const candidate = lines[i + offset];
+      aggregated = aggregated ? `${aggregated} ${candidate}` : candidate;
+
+      if (!TABLE_HEADER_REGEX.test(aggregated)) continue;
+      if (!looksLikeHeader(aggregated)) continue;
+
+      headerEnd = i + offset + 1;
+      break;
+    }
+    if (headerEnd !== -1) break;
+  }
+
+  let startIndex = headerEnd;
+  if (startIndex === -1) {
+    startIndex = lines.findIndex((line) => looksLikeLineStart(line));
+    if (startIndex === -1) return [];
+  }
+
+  const body = lines.slice(startIndex);
   const end = body.findIndex((line) => /(?:Summe|Total|Rechnungsbetrag)/i.test(line));
   return end === -1 ? body : body.slice(0, end);
 }
-
-const NUMERIC_FIELD_REGEX = /^-?(?:\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[,\.]\d+)?$/;
 
 function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): InvoiceLineDraft | null {
   if (bufferParts.length < 6) return null;
