@@ -4,14 +4,14 @@ import { makeClient } from "../_shared/supabaseClient.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", withCors());
+    return new Response("ok", withCors(req));
   }
 
   const url = new URL(req.url);
   const productId = Number(url.searchParams.get("product_id") ?? "0");
   const channel = (url.searchParams.get("channel") ?? "D2C") as "LEH"|"B2B"|"D2C";
 
-  if (!productId) return Response.json({ error: "product_id required" }, withCors({ status: 400 }));
+  if (!productId) return Response.json({ error: "product_id required" }, withCors(req, { status: 400 }));
 
   const supabase = makeClient(req);
 
@@ -20,14 +20,14 @@ Deno.serve(async (req) => {
     .select("product_id, channel, price_net")
     .eq("product_id", productId).eq("channel", channel)
     .maybeSingle();
-  if (e1) return Response.json({ error: e1.message }, withCors({ status: 500 }));
+  if (e1) return Response.json({ error: e1.message }, withCors(req, { status: 500 }));
 
   const { data: cost, error: e2 } = await supabase
     .from("current_purchase_costs")
     .select("product_id, purchase_cost_net_per_unit")
     .eq("product_id", productId)
     .maybeSingle();
-  if (e2) return Response.json({ error: e2.message }, withCors({ status: 500 }));
+  if (e2) return Response.json({ error: e2.message }, withCors(req, { status: 500 }));
 
   const sales = sale?.price_net ?? null;
   const purchase = cost?.purchase_cost_net_per_unit ?? null;
@@ -39,5 +39,5 @@ Deno.serve(async (req) => {
     purchase_cost_net_per_unit: purchase,
     dbi,
     db_margin
-  }, withCors());
+  }, withCors(req));
 });
