@@ -12,8 +12,10 @@ import type { InvoiceDraft, InvoiceLineDraft } from "../types";
 const VERSION = "2024-11-15";
 
 const HEADER_PATTERNS = {
-  invoiceNo: /(?:Invoice\s*(?:No\.?|Number)|Rechnungsnummer|Belegnr\.)[:#]?\s*([A-Z0-9\-]+)/i,
-  invoiceDate: /(?:Invoice Date|Datum|Belegdatum)[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
+  invoiceNo:
+    /(?:Invoice\s*(?:No\.?|Number)?|Rechnungsnummer|Belegnr\.|Document\s*(?:No\.?|Number)?|Doc\.?\s*(?:No\.?|Number)?|Doc\.)[:#\s]*([A-Z0-9][A-Z0-9\-\/]+)/i,
+  invoiceDate:
+    /(?:Invoice\s*Date|Rechnungsdatum|Belegdatum|Document\s*Date|Doc\.?\s*Date|(?:^|\n)\s*Date)[:#\s]*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
   gross: /(?:Gesamtbetrag|Bruttobetrag|Total Due)[:#]?\s*([0-9.]+,[0-9]{2})/i,
 };
 
