@@ -469,41 +469,142 @@ textarea:disabled {
   color: var(--accent);
 }
 
-.price-grid {
+.price-layout {
   display: grid;
-  gap: 18px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  align-items: start;
 }
 
-.price-tile {
+.price-sidebar {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 160px);
+}
+
+.price-controls {
+  display: grid;
   gap: 12px;
-  padding: 16px 18px;
+}
+
+.price-controls__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.price-controls__label {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.price-controls__input {
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 8px 10px;
+  font: inherit;
+  color: inherit;
+}
+
+.price-controls__input:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.25);
+  border-color: var(--accent);
+}
+
+.price-list-wrapper {
+  flex: 1;
+  min-height: 200px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--surface-muted);
-  min-height: 188px;
-}
-
-.price-tile__header {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
-.price-tile__header strong {
+.price-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.price-list__item {
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+.price-list li + li .price-list__item {
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.price-list__item:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.price-list__item--active {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.price-list__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.price-list__name {
+  font-weight: 600;
   color: var(--text-strong);
-  font-size: 1rem;
 }
 
-.price-tile__subline {
-  color: var(--text-muted);
+.price-list__change {
   font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 600;
 }
 
-.price-tile__chart {
-  height: 72px;
+.price-list__change--up {
+  color: #15803d;
+}
+
+.price-list__change--down {
+  color: #b91c1c;
+}
+
+.price-list__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.price-list__price {
+  margin-left: auto;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.price-list__sparkline {
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -514,40 +615,174 @@ textarea:disabled {
   height: 100%;
 }
 
-.price-tile__state {
-  font-size: 0.85rem;
+.price-list__state {
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-.price-tile__meta {
+.price-sidebar__empty {
+  padding: 18px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.price-detail {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: clamp(18px, 3vw, 28px);
+  display: flex;
+  min-height: 480px;
+}
+
+.price-detail__content {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 0.85rem;
+  gap: 24px;
+  width: 100%;
 }
 
-.price-tile__meta-line {
+.price-detail__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.price-detail__header h3 {
+  margin: 0 0 4px;
+  font-size: 1.4rem;
+  color: var(--text-strong);
+}
+
+.price-detail__header p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.price-detail__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.price-detail__value strong {
+  font-size: 1.3rem;
+  color: var(--text-strong);
+}
+
+.price-detail__chart-area {
+  min-height: 320px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: center;
+  padding: 12px;
 }
 
-.price-tile__meta-label {
+.price-detail__chart {
+  width: 100%;
+  height: 100%;
+}
+
+.price-detail__empty {
+  width: 100%;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.price-detail__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.price-detail__meta-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.price-detail__change {
   color: var(--text-muted);
 }
 
-.price-tile__change {
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.price-tile__change--up {
+.price-detail__change--up {
   color: #15803d;
 }
 
-.price-tile__change--down {
+.price-detail__change--down {
   color: #b91c1c;
+}
+
+.price-detail__history {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.price-detail__history h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-strong);
+}
+
+.price-detail__history-table-wrapper {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.price-detail__history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.price-detail__history-table th,
+.price-detail__history-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  text-align: left;
+}
+
+.price-detail__history-table th {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.price-detail__history-table tbody tr:nth-child(even) {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.price-detail__history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+@media (max-width: 960px) {
+  .price-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .price-sidebar {
+    position: static;
+    max-height: none;
+  }
+
+  .price-detail {
+    min-height: 400px;
+  }
 }
 
 .wizard-actions {
