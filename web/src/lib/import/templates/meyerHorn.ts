@@ -47,7 +47,7 @@ const META_PATTERNS: Array<{
   },
 ];
 
-const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?/i;
+const TABLE_HEADER_REGEX = /Pos\.?\s+Artikel|Art\.?\s*Nr\.?|Artikel-?Nr\.?\s+Lieferant|Nr\.?\s+Beschreibung/i;
 
 function cleanText(text: string): string[] {
   return text
@@ -92,39 +92,105 @@ function extractTable(lines: string[]): string[] {
   return end === -1 ? body : body.slice(0, end);
 }
 
+const NUMERIC_FIELD_REGEX = /^-?(?:\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[,\.]\d+)?$/;
+
 function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): InvoiceLineDraft | null {
   if (bufferParts.length < 6) return null;
-  const pos = Number.parseInt(bufferParts[0], 10);
-  const sku = bufferParts[1];
-  const qtyRaw = bufferParts[bufferParts.length - 4];
-  const uomRaw = bufferParts[bufferParts.length - 3];
-  const unitPriceRaw = bufferParts[bufferParts.length - 2];
-  const lineTotalRaw = bufferParts[bufferParts.length - 1];
-  const name = bufferParts.slice(2, bufferParts.length - 4).join(" ");
+
+  const parts = [...bufferParts];
+  const lineTotalRaw = parts.pop();
+  if (!lineTotalRaw) return null;
+
+  const numericTail: string[] = [];
+  while (parts.length > 0) {
+    const candidate = parts[parts.length - 1];
+    if (!candidate) break;
+    const cleaned = candidate.replace(/[A-Za-z%]/g, "");
+    if (!NUMERIC_FIELD_REGEX.test(cleaned)) {
+      break;
+    }
+    const popped = parts.pop()!;
+    numericTail.unshift(popped.replace(/%$/, ""));
+  }
+
+  const unitPriceRaw = numericTail.shift();
+  if (!unitPriceRaw) return null;
+
+  const isLikelyTax = (value: string | undefined) => {
+    if (!value) return false;
+    const normalised = normaliseNumber(value);
+    if (Number.isNaN(normalised)) return false;
+    const rounded = Math.round(normalised);
+    return Math.abs(normalised - rounded) < 0.001 && rounded >= 0 && rounded <= 25;
+  };
+
+  let taxRateRaw: string | undefined;
+  if (numericTail.length) {
+    const last = numericTail[numericTail.length - 1];
+    if (isLikelyTax(last)) {
+      taxRateRaw = numericTail.pop();
+    }
+  }
+
+  const uomRaw = parts.pop();
+  const qtyRaw = parts.pop();
+
+  if (!qtyRaw || !uomRaw || !unitPriceRaw) return null;
 
   const qty = normaliseNumber(qtyRaw);
   const { uom, warning } = toAllowedUom(uomRaw);
   if (!uom) return null;
   const unitPrice = normaliseNumber(unitPriceRaw);
   const lineTotal = normaliseNumber(lineTotalRaw, 2);
+
+  const taxRate = taxRateRaw ? normaliseNumber(taxRateRaw) : null;
+
+  const headParts = parts;
+
+  let posRaw: string | undefined;
+  let skuRaw: string | undefined;
+  let descriptionParts: string[] = headParts;
+
+  const first = headParts[0];
+  const second = headParts[1];
+
+  const looksLikePos = (value: string | undefined) =>
+    value != null && /^\d{1,3}$/.test(value.trim());
+  const looksLikeSku = (value: string | undefined) =>
+    value != null && /[A-Za-z0-9]/.test(value) && value.length >= 3;
+
+  if (looksLikePos(first) && looksLikeSku(second)) {
+    [posRaw, skuRaw] = headParts.slice(0, 2);
+    descriptionParts = headParts.slice(2);
+  } else if (looksLikePos(first) && !looksLikeSku(second)) {
+    posRaw = first;
+    descriptionParts = headParts.slice(1);
+  } else if (looksLikeSku(first)) {
+    skuRaw = first;
+    descriptionParts = headParts.slice(1);
+  }
+
+  const pos = posRaw ? Number.parseInt(posRaw, 10) : fallbackLineNo;
+  const name = descriptionParts.join(" ");
   const lineType = guessLineType(name);
-  const taxRate = lineType === "shipping" ? 19 : defaultTaxRate(lineType);
+  const effectiveTax =
+    lineType === "shipping" ? 19 : taxRate != null && !Number.isNaN(taxRate) ? taxRate : defaultTaxRate(lineType);
 
   const issues: string[] = [];
   if (warning) issues.push(warning);
 
-  let confidence = sku ? 0.9 : 0.75;
+  let confidence = skuRaw ? 0.92 : 0.78;
   if (issues.length) confidence = Math.min(confidence, 0.7);
 
   return {
     line_no: Number.isNaN(pos) ? fallbackLineNo : pos,
     line_type: lineType,
-    product_sku: sku || undefined,
+    product_sku: skuRaw || undefined,
     product_name: name || undefined,
     qty,
     uom,
     unit_price_net: unitPrice,
-    tax_rate_percent: taxRate,
+    tax_rate_percent: effectiveTax,
     line_total_net: lineTotal,
     confidence,
     issues,
@@ -141,7 +207,8 @@ function collect(lines: string[]): InvoiceLineDraft[] {
     const current = line.replace(/\t+/g, "\t").replace(/\s{2,}/g, "\t");
     const parts = current.split("\t").map((part) => part.trim()).filter(Boolean);
 
-    if (/^\d+\s/.test(line) && parts.length >= 6) {
+    const trimmed = line.trim();
+    if ((/^\d+\b/.test(trimmed) || /^\d{4,}/.test(parts[0] ?? "")) && parts.length >= 6) {
       buffer = line;
     } else if (buffer) {
       buffer = `${buffer} ${line}`;
@@ -219,32 +286,41 @@ function levenshteinDistance(a: string, b: string): number {
 }
 
 type FeedbackLookup = {
+  bySku: Map<string, ParserFeedbackEntry[]>;
   byCombined: Map<string, ParserFeedbackEntry[]>;
   byDescription: Map<string, ParserFeedbackEntry[]>;
   entries: ParserFeedbackEntry[];
 };
 
 function buildFeedbackLookup(feedback: ParserFeedbackEntry[] | undefined): FeedbackLookup {
+  const bySku = new Map<string, ParserFeedbackEntry[]>();
   const byCombined = new Map<string, ParserFeedbackEntry[]>();
   const byDescription = new Map<string, ParserFeedbackEntry[]>();
   const entries: ParserFeedbackEntry[] = [];
 
   for (const entry of feedback ?? []) {
     const descKey = normaliseDescription(entry.detected_description);
-    if (!descKey) continue;
     const skuKey = normaliseSku(entry.detected_sku);
-    const combinedKey = `${descKey}__${skuKey}`;
+    if (!descKey && !skuKey) continue;
 
-    if (!byCombined.has(combinedKey)) byCombined.set(combinedKey, []);
-    byCombined.get(combinedKey)!.push(entry);
+    if (skuKey) {
+      if (!bySku.has(skuKey)) bySku.set(skuKey, []);
+      bySku.get(skuKey)!.push(entry);
+    }
 
-    if (!byDescription.has(descKey)) byDescription.set(descKey, []);
-    byDescription.get(descKey)!.push(entry);
+    if (descKey) {
+      const combinedKey = `${descKey}__${skuKey}`;
+      if (!byCombined.has(combinedKey)) byCombined.set(combinedKey, []);
+      byCombined.get(combinedKey)!.push(entry);
+
+      if (!byDescription.has(descKey)) byDescription.set(descKey, []);
+      byDescription.get(descKey)!.push(entry);
+    }
 
     entries.push(entry);
   }
 
-  return { byCombined, byDescription, entries };
+  return { bySku, byCombined, byDescription, entries };
 }
 
 function pickPreferredEntry(entries: ParserFeedbackEntry[] | undefined): ParserFeedbackEntry | null {
@@ -264,7 +340,7 @@ function pickPreferredEntry(entries: ParserFeedbackEntry[] | undefined): ParserF
 
 type FeedbackMatch = {
   entry: ParserFeedbackEntry;
-  strategy: "combined" | "description" | "fuzzy";
+  strategy: "sku" | "combined" | "description" | "fuzzy";
 };
 
 function findFeedbackMatch(
@@ -275,6 +351,11 @@ function findFeedbackMatch(
   const sourceKey = normaliseDescription(line.source?.raw);
   const nameKey = normaliseDescription(line.product_name);
   const skuKey = normaliseSku(line.product_sku);
+
+  if (skuKey) {
+    const match = pickPreferredEntry(lookup.bySku.get(skuKey));
+    if (match) return { entry: match, strategy: "sku" };
+  }
 
   const candidateKeys = [sourceKey, nameKey].filter(Boolean);
 
@@ -318,9 +399,16 @@ function applyFeedback(
   let fuzzyMatches = 0;
 
   const items = baseItems.map((item) => {
-    if (item.line_type !== "product" || item.product_sku) return item;
+    if (item.line_type !== "product") return item;
     const match = findFeedbackMatch(item, lookup);
     if (!match) return item;
+
+    const alreadyApplied =
+      (match.entry.assigned_product_id == null || item.product_id === match.entry.assigned_product_id) &&
+      (match.entry.assigned_product_sku == null || item.product_sku === match.entry.assigned_product_sku) &&
+      (match.entry.assigned_product_name == null || item.product_name === match.entry.assigned_product_name) &&
+      (match.entry.assigned_uom == null || item.uom === match.entry.assigned_uom);
+    if (alreadyApplied) return item;
 
     applied += 1;
     if (match.strategy === "fuzzy") fuzzyMatches += 1;
