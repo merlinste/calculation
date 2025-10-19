@@ -13,7 +13,7 @@ import type {
   ParserFeedbackEntry,
 } from "../types";
 
-const VERSION = "2024-11-15";
+const VERSION = "2024-11-20";
 
 const HEADER_PATTERNS = {
   invoiceNo: /(?:Rechnung|Invoice)\s*(?:Nr\.|No\.|Number)?\s*[:#]?\s*([A-Z0-9\-]+)/i,
@@ -51,6 +51,15 @@ const TABLE_HEADER_REGEX =
   /(?:pos\.?\s*(?:nr\.|no\.)?|art\.?\s*nr\.?|artikel-?nr\.?|nr\.?|beschreibung|bezeichnung|menge|anzahl|qty|einheit|einh\.|stk\.?|einzelpreis|preis|betrag|gesamt|summe|total|\bEP\b)/i;
 
 const NUMERIC_FIELD_REGEX = /^-?(?:\d{1,3}(?:[.\s]\d{3})+|\d+)(?:[,\.]\d+)?$/;
+
+function splitParts(line: string): string[] {
+  return line
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
 
 function cleanText(text: string): string[] {
   return text
@@ -103,18 +112,12 @@ function looksLikeLineStart(line: string): boolean {
   const trimmed = line.trim();
   if (!/^\d+/.test(trimmed)) return false;
 
-  const parts = line
-    .replace(/\t+/g, "\t")
-    .replace(/\s{2,}/g, "\t")
-    .split("\t")
-    .map((part) => part.trim())
-    .filter(Boolean);
-
-  if (parts.length < 4) return false;
+  const parts = splitParts(line);
+  if (parts.length < 5) return false;
 
   let numericFields = 0;
   for (const part of parts.slice(1)) {
-    const cleaned = part.replace(/[A-Za-z%]/g, "");
+    const cleaned = part.replace(/[A-Za-z%€$]/g, "");
     if (cleaned && NUMERIC_FIELD_REGEX.test(cleaned)) {
       numericFields += 1;
     }
@@ -157,14 +160,24 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
   if (bufferParts.length < 6) return null;
 
   const parts = [...bufferParts];
-  const lineTotalRaw = parts.pop();
+
+  let lineTotalRaw: string | undefined;
+  while (parts.length > 0) {
+    const candidate = parts.pop();
+    if (!candidate) continue;
+    const cleaned = candidate.replace(/[A-Za-z%€$]/g, "");
+    if (cleaned && NUMERIC_FIELD_REGEX.test(cleaned)) {
+      lineTotalRaw = candidate;
+      break;
+    }
+  }
   if (!lineTotalRaw) return null;
 
   const numericTail: string[] = [];
   while (parts.length > 0) {
     const candidate = parts[parts.length - 1];
     if (!candidate) break;
-    const cleaned = candidate.replace(/[A-Za-z%]/g, "");
+    const cleaned = candidate.replace(/[A-Za-z%€$]/g, "");
     if (!NUMERIC_FIELD_REGEX.test(cleaned)) {
       break;
     }
@@ -198,7 +211,7 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
 
   const qty = normaliseNumber(qtyRaw);
   const { uom, warning } = toAllowedUom(uomRaw);
-  if (!uom) return null;
+  const resolvedUom = uom ?? "STUECK";
   const unitPrice = normaliseNumber(unitPriceRaw);
   const lineTotal = normaliseNumber(lineTotalRaw, 2);
 
@@ -216,7 +229,7 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
   const looksLikePos = (value: string | undefined) =>
     value != null && /^\d{1,3}$/.test(value.trim());
   const looksLikeSku = (value: string | undefined) =>
-    value != null && /[A-Za-z0-9]/.test(value) && value.length >= 3;
+    value != null && value.trim().length >= 3 && (/[0-9]/.test(value) || /[-/]/.test(value));
 
   if (looksLikePos(first) && looksLikeSku(second)) {
     [posRaw, skuRaw] = headParts.slice(0, 2);
@@ -237,6 +250,9 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
 
   const issues: string[] = [];
   if (warning) issues.push(warning);
+  if (!uom) {
+    issues.push(`Mengeneinheit '${uomRaw}' als STUECK interpretiert`);
+  }
 
   let confidence = skuRaw ? 0.92 : 0.78;
   if (issues.length) confidence = Math.min(confidence, 0.7);
@@ -247,7 +263,7 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
     product_sku: skuRaw || undefined,
     product_name: name || undefined,
     qty,
-    uom,
+    uom: resolvedUom,
     unit_price_net: unitPrice,
     tax_rate_percent: effectiveTax,
     line_total_net: lineTotal,
@@ -263,8 +279,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
   let fallbackLineNo = 1;
 
   for (const line of lines) {
-    const current = line.replace(/\t+/g, "\t").replace(/\s{2,}/g, "\t");
-    const parts = current.split("\t").map((part) => part.trim()).filter(Boolean);
+    const parts = splitParts(line);
 
     const trimmed = line.trim();
     if ((/^\d+\b/.test(trimmed) || /^\d{4,}/.test(parts[0] ?? "")) && parts.length >= 6) {
@@ -275,12 +290,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
       continue;
     }
 
-    const combinedParts = buffer
-      .replace(/\t+/g, "\t")
-      .replace(/\s{2,}/g, "\t")
-      .split("\t")
-      .map((part) => part.trim())
-      .filter(Boolean);
+    const combinedParts = splitParts(buffer);
 
     const parsed = parseLine(combinedParts, buffer, fallbackLineNo);
     if (parsed) {
@@ -291,12 +301,7 @@ function collect(lines: string[]): InvoiceLineDraft[] {
   }
 
   if (buffer) {
-    const combinedParts = buffer
-      .replace(/\t+/g, "\t")
-      .replace(/\s{2,}/g, "\t")
-      .split("\t")
-      .map((part) => part.trim())
-      .filter(Boolean);
+    const combinedParts = splitParts(buffer);
     const parsed = parseLine(combinedParts, buffer, fallbackLineNo);
     if (parsed) items.push(parsed);
   }
