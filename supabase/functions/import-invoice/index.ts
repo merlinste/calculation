@@ -2,7 +2,7 @@
 // Payload: ImportPayload (csv-MVP via file_base64)
 
 import { makeClient } from "../_shared/supabaseClient.ts";
-import type { ImportPayload, ImportRow, InvoiceDraft } from "../_shared/types.ts";
+import type { ImportPayload, ImportRow, InvoiceDraft, ManualFeedbackInput } from "../_shared/types.ts";
 import { parseBeyers } from "../_shared/parsers/beyers.ts";
 import { parseMeyerHorn } from "../_shared/parsers/meyer_horn.ts";
 import { allocateSurcharges } from "../_shared/surcharge_allocator.ts";
@@ -145,6 +145,30 @@ Deno.serve(async (req) => {
     if (invDupErr) throw invDupErr;
     if (invDup?.id) {
       return Response.json({ status: "error", errors: [`Rechnung ${invoiceNo} bei ${supplier} existiert bereits (id=${invDup.id}).`] }, { status: 409 });
+    }
+
+    const manualFeedbackEntries = (payload.manual_feedback ?? []).filter((entry) =>
+      entry && entry.detected_description && entry.detected_description.trim() && entry.product_id != null
+    );
+
+    if (manualFeedbackEntries.length) {
+      const feedbackRows = manualFeedbackEntries.map((entry: ManualFeedbackInput) => ({
+        supplier: entry.supplier || supplier,
+        detected_description: entry.detected_description.trim(),
+        detected_sku: entry.detected_sku?.trim() ?? null,
+        assigned_product_id: entry.product_id ?? null,
+        assigned_product_sku: entry.product_sku?.trim() ?? null,
+        assigned_product_name: entry.manual_name?.trim() ?? null,
+        assigned_uom: entry.uom ?? null,
+        updated_at: new Date().toISOString(),
+      }));
+
+      if (feedbackRows.length) {
+        const { error: feedbackErr } = await supabase
+          .from("import_parser_feedback")
+          .upsert(feedbackRows, { onConflict: "supplier,detected_description,detected_sku" });
+        if (feedbackErr) throw feedbackErr;
+      }
     }
 
     // Summen aus CSV berechnen
