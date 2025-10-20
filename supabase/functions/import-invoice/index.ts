@@ -49,8 +49,8 @@ Deno.serve(async (req) => {
     const warnings: string[] = [];
     const errors: string[] = [];
 
-    const mode = payload.mode ?? "finalize";
-    if (payload.source === "pdf" && mode !== "finalize") {
+    const opMode = payload.mode ?? "finalize";
+    if (payload.source === "pdf" && opMode !== "finalize") {
       return jsonResponse({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, 400);
     }
 
@@ -343,7 +343,7 @@ Deno.serve(async (req) => {
     }
 
     // Allokations-Policy
-    let mode: "per_kg" | "per_piece" | "none" = payload.options?.allocate_surcharges ?? "none";
+    let allocMode: "per_kg" | "per_piece" | "none" = payload.options?.allocate_surcharges ?? "none";
     if (!payload.options?.allocate_surcharges) {
       // Supplier-Default (neueste aktive Policy)
       const { data: pol } = await supabase
@@ -354,7 +354,7 @@ Deno.serve(async (req) => {
         .order("active_from", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (pol?.policy) mode = pol.policy as typeof mode;
+      if (pol?.policy) allocMode = pol.policy as typeof allocMode;
     }
 
     const allocated = allocateSurcharges({
@@ -365,7 +365,7 @@ Deno.serve(async (req) => {
         base_price_per_unit: p.base_price_per_unit ?? 0
       })),
       totalSurchargeNet: Number(surchargeTotal.toFixed(4)),
-      mode
+      mode: allocMode
     });
 
     // Preis-Historie schreiben (nur Produktzeilen)
