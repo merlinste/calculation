@@ -4,9 +4,6 @@ const stripTrailingSlashes = (value: string) => value.replace(/\/+$/, "");
 
 const supabaseUrl = stripTrailingSlashes(import.meta.env.VITE_SUPABASE_URL!.trim());
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!.trim();
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 const configuredFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
 const normalizeFunctionsUrl = (value: string | undefined | null): string => {
@@ -42,3 +39,7 @@ const normalizeFunctionsUrl = (value: string | undefined | null): string => {
 };
 
 export const functionsUrl = normalizeFunctionsUrl(configuredFunctionsUrl);
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  functions: { url: functionsUrl },
+});
