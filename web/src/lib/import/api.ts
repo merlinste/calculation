@@ -1,4 +1,6 @@
-import { supabase, functionsUrl, supabaseAnonKey } from "../supabase";
+import { FunctionsFetchError, FunctionsHttpError } from "@supabase/supabase-js";
+
+import { supabase } from "../supabase";
 import { withValidation } from "./utils";
 import type {
   InvoiceDraft,
@@ -51,7 +53,6 @@ export async function finalizePdfImport(
   options: FinalizePdfImportOptions,
 ): Promise<FinalizePdfImportResult> {
   try {
-    const session = (await supabase.auth.getSession()).data.session;
     const manualFeedback = (options.manualAssignments ?? [])
       .filter((entry) => Number.isFinite(entry.productId))
       .map((entry) => ({
@@ -74,15 +75,6 @@ export async function finalizePdfImport(
       manual_feedback: manualFeedback.length ? manualFeedback : undefined,
     };
 
-    const sessionToken = session?.access_token?.trim();
-    const bearerToken = sessionToken && sessionToken.length ? sessionToken : supabaseAnonKey;
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${bearerToken}`,
-    };
-
     const configuredFunctionName = import.meta.env.VITE_SUPABASE_IMPORT_FUNCTION?.trim();
     const functionCandidates = configuredFunctionName?.length
       ? [configuredFunctionName.replace(/^\/+/, "")]
@@ -91,36 +83,42 @@ export async function finalizePdfImport(
     let lastError: string | undefined;
 
     for (const functionName of functionCandidates) {
-      const response = await fetch(`${functionsUrl}/${functionName}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
+      const { data, error } = await supabase.functions.invoke<Record<string, unknown>>(functionName, {
+        body: payload,
       });
 
-      if (!response.ok) {
-        const errorText = (await response.text()) || undefined;
-        if (response.status === 404 && functionCandidates.length > 1) {
-          lastError = errorText || `Import-Funktion '${functionName}' nicht gefunden.`;
+      if (error) {
+        if (
+          error instanceof FunctionsHttpError &&
+          error.context?.status === 404 &&
+          functionCandidates.length > 1
+        ) {
+          lastError = error.message || `Import-Funktion '${functionName}' nicht gefunden.`;
           continue;
         }
-        return { error: errorText || "Import fehlgeschlagen." };
+
+        if (error instanceof FunctionsFetchError) {
+          return {
+            error:
+              "Import-Service konnte nicht erreicht werden. Bitte prüfen Sie die Netzwerkverbindung oder die Supabase-Konfiguration.",
+          };
+        }
+
+        return { error: error.message || "Import fehlgeschlagen." };
       }
 
-      const json = (await response.json()) as Record<string, unknown>;
-      return { data: json };
+      return { data: (data as Record<string, unknown> | null) ?? {} };
     }
 
     return { error: lastError || "Import-Funktion nicht erreichbar." };
   } catch (error) {
-    const message = (() => {
-      if (error instanceof TypeError) {
-        const normalized = error.message.trim().toLowerCase();
-        if (normalized === "failed to fetch" || normalized === "fetch failed") {
-          return "Import-Service konnte nicht erreicht werden. Bitte prüfen Sie die Netzwerkverbindung oder die Supabase-Konfiguration.";
-        }
-      }
-      return (error as Error).message;
-    })();
-    return { error: message };
+    if (error instanceof FunctionsFetchError) {
+      return {
+        error:
+          "Import-Service konnte nicht erreicht werden. Bitte prüfen Sie die Netzwerkverbindung oder die Supabase-Konfiguration.",
+      };
+    }
+
+    return { error: (error as Error).message };
   }
 }

@@ -4,19 +4,18 @@ const stripTrailingSlashes = (value: string) => value.replace(/\/+$/, "");
 
 const supabaseUrl = stripTrailingSlashes(import.meta.env.VITE_SUPABASE_URL!.trim());
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY!.trim();
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
 const configuredFunctionsUrl = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+
+const defaultFunctionsUrl = `${supabaseUrl}/functions/v1`;
 
 const normalizeFunctionsUrl = (value: string | undefined | null): string => {
   if (!value) {
-    return `${supabaseUrl}/functions/v1`;
+    return defaultFunctionsUrl;
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    return `${supabaseUrl}/functions/v1`;
+    return defaultFunctionsUrl;
   }
 
   try {
@@ -24,14 +23,8 @@ const normalizeFunctionsUrl = (value: string | undefined | null): string => {
     const origin = `${url.protocol}//${url.host}`;
     const pathname = url.pathname.replace(/\/+$/, "");
 
-    // Support the "project.supabase.co" URLs without having to manually append /functions/v1.
     if (!pathname || pathname === "/") {
-      if (url.host.endsWith(".functions.supabase.co")) {
-        return origin;
-      }
-      if (url.host.endsWith(".supabase.co")) {
-        return `${origin}/functions/v1`;
-      }
+      return origin;
     }
 
     return `${origin}${pathname}`;
@@ -42,3 +35,7 @@ const normalizeFunctionsUrl = (value: string | undefined | null): string => {
 };
 
 export const functionsUrl = normalizeFunctionsUrl(configuredFunctionsUrl);
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  functions: { url: functionsUrl },
+});
