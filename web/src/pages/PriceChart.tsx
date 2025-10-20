@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { functionsUrl, supabase } from "../lib/supabase";
+import { FunctionsFetchError } from "@supabase/supabase-js";
+
+import { supabase } from "../lib/supabase";
 
 type Product = {
   id: number;
@@ -349,30 +351,22 @@ export default function PriceChart() {
     setHistories({});
     setHistoryErrors({});
 
-    supabase.auth.getSession().then(async ({ data: session }) => {
-      if (isCancelled) return;
-      const token = session.session?.access_token;
-      if (!token) {
-        setMessage("Preisdaten konnten nicht geladen werden.");
-        setIsLoadingHistories(false);
-        return;
-      }
-
+    (async () => {
       const results = await Promise.allSettled(
         products.map(async (product) => {
-          const res = await fetch(
-            `${functionsUrl}/prices-product-history?product_id=${product.id}`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-            }
+          const { data, error } = await supabase.functions.invoke(
+            `prices-product-history?product_id=${product.id}`,
+            { method: "GET" }
           );
 
-          if (!res.ok) {
-            throw new Error("failed");
+          if (error) {
+            throw error;
           }
 
-          const payload = await res.json();
-          return { productId: product.id, history: normalizeHistory(payload) };
+          return {
+            productId: product.id,
+            history: normalizeHistory(data),
+          };
         })
       );
 
@@ -387,14 +381,17 @@ export default function PriceChart() {
         if (result.status === "fulfilled") {
           historyMap[productId] = result.value.history;
         } else {
-          errorMap[productId] = "Preisdaten nicht verfügbar.";
+          errorMap[productId] =
+            result.reason instanceof FunctionsFetchError
+              ? "Preisdaten-Service konnte nicht erreicht werden."
+              : "Preisdaten nicht verfügbar.";
         }
       });
 
       setHistories(historyMap);
       setHistoryErrors(errorMap);
       setIsLoadingHistories(false);
-    });
+    })();
 
     return () => {
       isCancelled = true;
