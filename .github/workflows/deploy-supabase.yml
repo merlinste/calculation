@@ -47,4 +47,3 @@ jobs:
         run: |
           supabase login --token "$SUPABASE_ACCESS_TOKEN"
           supabase functions deploy import-invoice --project-ref "$SUPABASE_PROJECT_REF"
-        working-directory: supabase
