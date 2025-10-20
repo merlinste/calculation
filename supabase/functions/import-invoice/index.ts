@@ -1,7 +1,7 @@
 // POST /functions/v1/import-invoice
 // Payload: ImportPayload (csv-MVP via file_base64)
 
-import { withCors } from "../_shared/cors.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { makeClient } from "../_shared/supabaseClient.ts";
 import type { ImportPayload, ImportRow, InvoiceDraft, ManualFeedbackInput } from "../_shared/types.ts";
 import { parseBeyers } from "../_shared/parsers/beyers.ts";
@@ -9,6 +9,12 @@ import { parseMeyerHorn } from "../_shared/parsers/meyer_horn.ts";
 import { allocateSurcharges } from "../_shared/surcharge_allocator.ts";
 
 type BaseUom = "piece" | "kg";
+
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
 function b64decode(b64: string) {
   const bytes = atob(b64);
@@ -30,12 +36,12 @@ function toBaseUom(uom: "TU" | "STUECK" | "KG", productBase: BaseUom, piecesPerT
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", withCors(req));
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
     if (req.method !== "POST") {
-      return Response.json({ error: "Use POST" }, withCors(req, { status: 405 }));
+      return jsonResponse({ error: "Use POST" }, 405);
     }
     const supabase = makeClient(req);
     const payload = (await req.json()) as ImportPayload;
@@ -45,7 +51,7 @@ Deno.serve(async (req) => {
 
     const mode = payload.mode ?? "finalize";
     if (payload.source === "pdf" && mode !== "finalize") {
-      return Response.json({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, withCors(req, { status: 400 }));
+      return jsonResponse({ status: "error", errors: ["Preview wird clientseitig durchgeführt."] }, 400);
     }
 
     let rows: ImportRow[] = [];
@@ -58,7 +64,7 @@ Deno.serve(async (req) => {
     if (payload.source === "pdf") {
       const draft = payload.draft;
       if (!draft) {
-        return Response.json({ status: "error", errors: ["draft erforderlich"] }, withCors(req, { status: 400 }));
+        return jsonResponse({ status: "error", errors: ["draft erforderlich"] }, 400);
       }
       supplier = draft.supplier || supplier;
       invoiceNo = draft.invoice_no || invoiceNo;
@@ -89,14 +95,14 @@ Deno.serve(async (req) => {
         line_no: item.line_no,
       }));
       if (!rows.length) {
-        return Response.json({ status: "error", errors: ["Keine Positionen im Review übermittelt."] }, withCors(req, { status: 400 }));
+        return jsonResponse({ status: "error", errors: ["Keine Positionen im Review übermittelt."] }, 400);
       }
       supplier = supplier || "Unknown Supplier";
       invoiceNo = invoiceNo || draft.invoice_no;
       invoiceDate = invoiceDate || draft.invoice_date;
     } else {
       if (!payload.file_base64) {
-        return Response.json({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, withCors(req, { status: 400 }));
+        return jsonResponse({ status: "error", errors: ["file_base64 (CSV) erforderlich"] }, 400);
       }
 
       const csv = b64decode(payload.file_base64);
@@ -110,7 +116,7 @@ Deno.serve(async (req) => {
         warnings.push("Unbekannter Supplier – generische CSV-Zuordnung versucht (Beyers-Layout).");
       }
 
-      if (!rows.length) return Response.json({ status: "error", errors: ["CSV leer"] }, withCors(req, { status: 400 }));
+      if (!rows.length) return jsonResponse({ status: "error", errors: ["CSV leer"] }, 400);
 
       // Header aus erster Zeile (CSV enthält ohnehin Kopf-Felder je Zeile)
       const hdr = rows[0];
@@ -149,7 +155,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (invDupErr) throw invDupErr;
     if (invDup?.id) {
-      return Response.json({ status: "error", errors: [`Rechnung ${invoiceNo} bei ${supplier} existiert bereits (id=${invDup.id}).`] }, withCors(req, { status: 409 }));
+      return jsonResponse({ status: "error", errors: [`Rechnung ${invoiceNo} bei ${supplier} existiert bereits (id=${invDup.id}).`] }, 409);
     }
 
     const manualFeedbackEntries = (payload.manual_feedback ?? []).filter((entry) =>
@@ -389,15 +395,15 @@ Deno.serve(async (req) => {
       warnings.push("Summenprüfung: CSV ohne Kopf-Summen – geprüft wurden nur Zeilensummen (OK).");
     }
 
-    return Response.json({
+    return jsonResponse({
       status: "ok",
       invoice_id: invoiceId,
       items_imported: prepared.length,
       warnings,
       errors
-    }, withCors(req));
+    });
   } catch (e) {
     console.error("import-invoice error", e);
-    return Response.json({ status: "error", errors: [String(e?.message ?? e)] }, withCors(req, { status: 500 }));
+    return jsonResponse({ status: "error", errors: [String(e?.message ?? e)] }, 500);
   }
 });
