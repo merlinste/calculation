@@ -74,13 +74,14 @@ export async function finalizePdfImport(
       manual_feedback: manualFeedback.length ? manualFeedback : undefined,
     };
 
+    const sessionToken = session?.access_token?.trim();
+    const bearerToken = sessionToken && sessionToken.length ? sessionToken : supabaseAnonKey;
+
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       apikey: supabaseAnonKey,
+      Authorization: `Bearer ${bearerToken}`,
     };
-    if (session?.access_token) {
-      headers.Authorization = `Bearer ${session.access_token}`;
-    }
 
     const configuredFunctionName = import.meta.env.VITE_SUPABASE_IMPORT_FUNCTION?.trim();
     const functionCandidates = configuredFunctionName?.length
