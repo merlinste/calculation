@@ -82,19 +82,34 @@ export async function finalizePdfImport(
       headers.Authorization = `Bearer ${session.access_token}`;
     }
 
-    const response = await fetch(`${functionsUrl}/import-invoice`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
+    const configuredFunctionName = import.meta.env.VITE_SUPABASE_IMPORT_FUNCTION?.trim();
+    const functionCandidates = configuredFunctionName?.length
+      ? [configuredFunctionName.replace(/^\/+/, "")]
+      : ["import-invoice", "import"];
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { error: errorText || "Import fehlgeschlagen." };
+    let lastError: string | undefined;
+
+    for (const functionName of functionCandidates) {
+      const response = await fetch(`${functionsUrl}/${functionName}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = (await response.text()) || undefined;
+        if (response.status === 404 && functionCandidates.length > 1) {
+          lastError = errorText || `Import-Funktion '${functionName}' nicht gefunden.`;
+          continue;
+        }
+        return { error: errorText || "Import fehlgeschlagen." };
+      }
+
+      const json = (await response.json()) as Record<string, unknown>;
+      return { data: json };
     }
 
-    const json = (await response.json()) as Record<string, unknown>;
-    return { data: json };
+    return { error: lastError || "Import-Funktion nicht erreichbar." };
   } catch (error) {
     const message = (() => {
       if (error instanceof TypeError) {
