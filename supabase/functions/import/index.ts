@@ -1,4 +1,4 @@
-// POST /functions/v1/import-invoice
+// POST /functions/v1/import
 // Payload: ImportPayload (csv-MVP via file_base64)
 
 import { withCors } from "../_shared/cors.ts";
