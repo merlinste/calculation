@@ -7,6 +7,7 @@ Ziele: Artikelstamm, Lieferantenrechnungen importieren, Einkaufspreise historisi
 - React + TS (Vite) – Hosting via Netlify
 - Edge Functions:
   - `import-invoice` (POST)
+  - `import` (GET)
   - `prices-product-history` (GET)
   - `dbi` (GET)
 
