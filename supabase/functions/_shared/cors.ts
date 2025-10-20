@@ -1,13 +1,5 @@
 export const corsHeaders = {
-  "Access-Control-Allow-Origin": "https://earlybird-calculation.netlify.app",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  'Access-Control-Allow-Origin': 'https://earlybird-calculation.netlify.app',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-
-export function withCors(_req?: Request, init: ResponseInit = {}): ResponseInit {
-  const headers = new Headers(init.headers ?? {});
-  for (const [key, value] of Object.entries(corsHeaders)) {
-    headers.set(key, value);
-  }
-  return { ...init, headers };
-}
