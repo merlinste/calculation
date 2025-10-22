@@ -1,8 +1,2 @@
-[functions.import_map]
-"*" = "./functions/_shared/deno.json"
-
 [functions."import-invoice"]
-# optional: nur wenn du Preflights ohne JWT willst
-# verify_jwt = false
 import_map = './functions/import-invoice/import_map.json'
-
