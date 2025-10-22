@@ -23,13 +23,13 @@ function b64decode(b64: string) {
   return new TextDecoder().decode(buf);
 }
 
-function toBaseUom(uom: "TU" | "STUECK" | "KG", productBase: BaseUom, piecesPerTU?: number) {
+function toBaseUom(uom: "TU" | "STUECK" | "KG", productBase: BaseUom, piecesPerTu?: number) {
   if (productBase === "kg") {
     if (uom === "KG") return { qtyFactor: 1, baseUom: "kg" as const };
     return { qtyFactor: NaN, baseUom: "kg" as const };
   } else {
     if (uom === "STUECK") return { qtyFactor: 1, baseUom: "piece" as const };
-    if (uom === "TU" && piecesPerTU && piecesPerTU > 0) return { qtyFactor: piecesPerTU, baseUom: "piece" as const };
+    if (uom === "TU" && piecesPerTu && piecesPerTu > 0) return { qtyFactor: piecesPerTu, baseUom: "piece" as const };
     return { qtyFactor: NaN, baseUom: "piece" as const };
   }
 }
@@ -235,57 +235,57 @@ Deno.serve(async (req) => {
 
     for (const r of productRows) {
       // Produktzuordnung: erst über Id, sonst SKU oder Name (rudimentär)
-      let product: { id: number; base_uom: BaseUom; pieces_per_TU: number | null } | null = null;
+      let product: { id: number; base_uom: BaseUom; pieces_per_tu: number | null } | null = null;
 
       if (r.product_id) {
         const { data: prod, error: prodErr } = await supabase
           .from("products")
-          .select("id, base_uom, pieces_per_TU")
+          .select("id, base_uom, pieces_per_tu")
           .eq("id", r.product_id)
           .maybeSingle();
         if (prodErr) throw prodErr;
-        if (prod) product = { id: prod.id, base_uom: prod.base_uom as BaseUom, pieces_per_TU: prod.pieces_per_TU };
+        if (prod) product = { id: prod.id, base_uom: prod.base_uom as BaseUom, pieces_per_tu: prod.pieces_per_tu };
       }
 
       if (!product && r.product_sku) {
         const { data: prod, error: prodErr } = await supabase
           .from("products")
-          .select("id, base_uom, pieces_per_TU")
+          .select("id, base_uom, pieces_per_tu")
           .eq("sku", r.product_sku)
           .maybeSingle();
         if (prodErr) throw prodErr;
-        if (prod) product = { id: prod.id, base_uom: prod.base_uom as BaseUom, pieces_per_TU: prod.pieces_per_TU };
+        if (prod) product = { id: prod.id, base_uom: prod.base_uom as BaseUom, pieces_per_tu: prod.pieces_per_tu };
       }
 
       if (!product && r.product_name) {
         const { data: prodByName, error: prodNameErr } = await supabase
           .from("products")
-          .select("id, base_uom, pieces_per_TU")
+          .select("id, base_uom, pieces_per_tu")
           .ilike("name", r.product_name)
           .maybeSingle();
         if (prodNameErr) throw prodNameErr;
-        if (prodByName) product = { id: prodByName.id, base_uom: prodByName.base_uom as BaseUom, pieces_per_TU: prodByName.pieces_per_TU };
+        if (prodByName) product = { id: prodByName.id, base_uom: prodByName.base_uom as BaseUom, pieces_per_tu: prodByName.pieces_per_tu };
       }
 
       if (!product) {
         // Grobe Heuristik für base_uom
         const base_uom: BaseUom = r.uom === "KG" ? "kg" : "piece";
         const pieces = (base_uom === "piece" ?  (r.uom === "TU" ? 100 : 1) : null); // MVP: 100/Stk pro TU als default
-        warnings.push(`Produkt unbekannt – neu angelegt: SKU=${r.product_sku ?? "n/a"} Name=${r.product_name ?? "n/a"} (base_uom=${base_uom}, pieces_per_TU=${pieces ?? "null"})`);
+        warnings.push(`Produkt unbekannt – neu angelegt: SKU=${r.product_sku ?? "n/a"} Name=${r.product_name ?? "n/a"} (base_uom=${base_uom}, pieces_per_tu=${pieces ?? "null"})`);
         const { data: created, error: createErr } = await supabase.from("products")
           .insert({
             sku: r.product_sku ?? `AUTO-${crypto.randomUUID().slice(0,8)}`,
             name: r.product_name ?? "Unbekannt",
             base_uom,
-            pieces_per_TU: pieces
+            pieces_per_tu: pieces
           })
-          .select("id, base_uom, pieces_per_TU")
+          .select("id, base_uom, pieces_per_tu")
           .single();
         if (createErr) throw createErr;
-        product = { id: created.id, base_uom: created.base_uom as BaseUom, pieces_per_TU: created.pieces_per_TU };
+        product = { id: created.id, base_uom: created.base_uom as BaseUom, pieces_per_tu: created.pieces_per_tu };
       }
 
-      const { qtyFactor, baseUom } = toBaseUom(r.uom, product.base_uom, product.pieces_per_TU ?? undefined);
+      const { qtyFactor, baseUom } = toBaseUom(r.uom, product.base_uom, product.pieces_per_tu ?? undefined);
       if (Number.isNaN(qtyFactor)) {
         warnings.push(`UoM-Konflikt bei SKU ${r.product_sku ?? r.product_name}: uom=${r.uom}, base=${product.base_uom}. Zeile wird übernommen, aber Preis-Historie kann evtl. nicht berechnet werden.`);
       }

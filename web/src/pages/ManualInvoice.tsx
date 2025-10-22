@@ -33,7 +33,7 @@ export default function ManualInvoice() {
   type ProductDetail = {
     id: number;
     base_uom: "piece" | "kg";
-    pieces_per_TU: number | null;
+    pieces_per_tu: number | null;
   };
 
   type NormalizedUom = "KG" | "STUECK" | "TU";
@@ -72,10 +72,10 @@ export default function ManualInvoice() {
       if (unit === "STUECK" || unit === null) {
         return { qtyBase: quantity, pricePerBaseUnit: unitPrice };
       }
-      if (unit === "TU" && product.pieces_per_TU && product.pieces_per_TU > 0) {
-        const qtyBase = quantity * product.pieces_per_TU;
+      if (unit === "TU" && product.pieces_per_tu && product.pieces_per_tu > 0) {
+        const qtyBase = quantity * product.pieces_per_tu;
         if (!qtyBase) return null;
-        return { qtyBase, pricePerBaseUnit: unitPrice / product.pieces_per_TU };
+        return { qtyBase, pricePerBaseUnit: unitPrice / product.pieces_per_tu };
       }
       return null;
     }
@@ -179,7 +179,7 @@ export default function ManualInvoice() {
     try {
       const { data: productDetailsData, error: productDetailsError } = await supabase
         .from("products")
-        .select("id, base_uom, pieces_per_TU")
+        .select("id, base_uom, pieces_per_tu")
         .in("id", productIds);
 
       if (productDetailsError) {
@@ -190,8 +190,8 @@ export default function ManualInvoice() {
       (productDetailsData ?? []).forEach((entry) => {
         const id = entry.id as number;
         const base_uom = (entry.base_uom as ProductDetail["base_uom"]) || "piece";
-        const pieces_per_TU = (entry.pieces_per_TU as number | null) ?? null;
-        productDetailsMap.set(id, { id, base_uom, pieces_per_TU });
+        const pieces_per_tu = (entry.pieces_per_tu as number | null) ?? null;
+        productDetailsMap.set(id, { id, base_uom, pieces_per_tu });
       });
 
       const invoiceDateValue = invoiceDate || null;
