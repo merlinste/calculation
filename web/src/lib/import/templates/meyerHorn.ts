@@ -19,12 +19,64 @@ const VERSION = "2025-02-19";
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
 const HEADER_PATTERNS = {
-  invoiceNo:
-    /(?:(?:Rechnung|Invoice)\s*(?:Nr\.|No\.|Number)?|(?:Nr\.|No\.|Number|Nummer))\s*[:#]?\s*([A-Z0-9\-\/]+)/i,
   invoiceDate:
     /(?:Rechnungsdatum|Invoice Date|Datum)[:#]?\s*(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{2,4})/i,
   gross: /(?:Bruttosumme|Gesamtbetrag|Total Due)[:#]?\s*([0-9.]+,[0-9]{2})/i,
 };
+
+const INVOICE_NO_PRIMARY_PATTERN =
+  /(?:Rechnungs?-?(?:nr\.|nummer)?|\bRechnung\b|Invoice)(?:\s*(?:Nr\.|No\.|Number|#))?[:#]?\s*([A-Z0-9\-\/]+)/i;
+const INVOICE_NO_PRIMARY_LABEL =
+  /(?:Rechnungs?-?(?:nr\.|nummer)?|\bRechnung\b|Invoice)(?:\s*(?:Nr\.|No\.|Number|#))?[.:#]?\s*$/i;
+const INVOICE_NO_FALLBACK_PATTERN =
+  /(?:\bNummer\b|(?:^|\s)(?:Nr\.|No\.|Number)\b)[:#]?\s*([A-Z0-9\-\/]+)/i;
+const INVOICE_NO_FALLBACK_LABEL = /(?:\bNummer\b|(?:^|\s)(?:Nr\.|No\.|Number)\b)[.:#]?\s*$/i;
+
+const INVOICE_NO_VALUE_REGEX = /^[A-Z0-9][A-Z0-9\-\/]*\d[A-Z0-9\-\/]*$/;
+
+function isLikelyInvoiceNo(value: string | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  return trimmed.length > 0 && INVOICE_NO_VALUE_REGEX.test(trimmed);
+}
+
+function extractInvoiceNo(text: string): string {
+  const lines = cleanText(text);
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const match = line.match(INVOICE_NO_PRIMARY_PATTERN);
+    if (isLikelyInvoiceNo(match?.[1])) {
+      return match![1].trim();
+    }
+
+    if (INVOICE_NO_PRIMARY_LABEL.test(line)) {
+      const next = lines[i + 1]?.trim();
+      if (isLikelyInvoiceNo(next)) {
+        return next;
+      }
+    }
+  }
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/(?:Ident|USt|VAT|Steuer)/i.test(line)) continue;
+
+    const match = line.match(INVOICE_NO_FALLBACK_PATTERN);
+    if (isLikelyInvoiceNo(match?.[1])) {
+      return match![1].trim();
+    }
+
+    if (INVOICE_NO_FALLBACK_LABEL.test(line)) {
+      const next = lines[i + 1]?.trim();
+      if (isLikelyInvoiceNo(next)) {
+        return next;
+      }
+    }
+  }
+
+  return "";
+}
 
 const META_PATTERNS: Array<{
   key: string;
@@ -79,7 +131,7 @@ function cleanText(text: string): string[] {
 }
 
 function parseHeader(text: string) {
-  const invoiceNo = text.match(HEADER_PATTERNS.invoiceNo)?.[1] ?? "";
+  const invoiceNo = extractInvoiceNo(text);
   const invoiceDateRaw = text.match(HEADER_PATTERNS.invoiceDate)?.[1] ?? "";
   const grossRaw = text.match(HEADER_PATTERNS.gross)?.[1] ?? "";
   return {
