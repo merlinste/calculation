@@ -289,7 +289,9 @@ export default function ImportWizard() {
   const handleProductSelect = (index: number, productId: number | null) => {
     const line = draft?.items[index];
     const isManualCandidate = line ? manualCandidatesRef.current.has(line.line_no) : false;
-    const detectedDescription = line ? (line.source?.raw ?? line.product_name ?? "").trim() : "";
+    const detectedDescription = line
+      ? (line.product_name?.trim() || line.source?.raw?.trim() || "")
+      : "";
     const detectedSku = line?.product_sku ?? null;
     const currentUom = line?.uom;
 
