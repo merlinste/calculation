@@ -1,5 +1,5 @@
 export const corsHeaders = {
-  'Access-Control-Allow-Origin': 'https://earlybird-calculation.netlify.app', // oder '*'
+  'Access-Control-Allow-Origin': 'https://earlybird-calculation.netlify.app',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Max-Age': '600',
@@ -31,4 +31,15 @@ export function withCors(req: Request, init: ResponseInit = {}): ResponseInit {
   }
 
   return { ...init, headers };
+}
+
+export function jsonResponse(
+  req: Request,
+  body: unknown,
+  status = 200,
+): Response {
+  return new Response(JSON.stringify(body), withCors(req, {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  }));
 }

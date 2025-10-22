@@ -1,12 +1,6 @@
 // GET /functions/v1/prices-product-history?product_id=...&from=YYYY-MM-DD&to=YYYY-MM-DD
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { makeClient } from "../_shared/supabaseClient.ts";
-
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -14,7 +8,7 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== "GET" && req.method !== "POST") {
-    return jsonResponse({ error: "Use GET or POST" }, 405);
+    return jsonResponse(req, { error: "Use GET or POST" }, 405);
   }
 
   try {
@@ -64,7 +58,7 @@ Deno.serve(async (req) => {
     }
 
     if (!productId || Number.isNaN(productId)) {
-      return jsonResponse({ error: "product_id required" }, 400);
+      return jsonResponse(req, { error: "product_id required" }, 400);
     }
 
     const supabase = makeClient(req);
@@ -78,12 +72,12 @@ Deno.serve(async (req) => {
 
     const { data, error } = await q;
     if (error) {
-      return jsonResponse({ error: error.message }, 500);
+      return jsonResponse(req, { error: error.message }, 500);
     }
 
-    return jsonResponse(data);
+    return jsonResponse(req, data);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse(req, { error: message }, 500);
   }
 });

@@ -1,12 +1,6 @@
 // GET /functions/v1/dbi?product_id=...&channel=LEH|B2B|D2C
-import { corsHeaders } from "../_shared/cors.ts";
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { makeClient } from "../_shared/supabaseClient.ts";
-
-const jsonResponse = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -14,7 +8,7 @@ Deno.serve(async (req) => {
   }
 
   if (req.method !== "GET") {
-    return jsonResponse({ error: "Use GET" }, 405);
+    return jsonResponse(req, { error: "Use GET" }, 405);
   }
 
   try {
@@ -23,7 +17,7 @@ Deno.serve(async (req) => {
     const channel = (url.searchParams.get("channel") ?? "D2C") as "LEH" | "B2B" | "D2C";
 
     if (!productId) {
-      return jsonResponse({ error: "product_id required" }, 400);
+      return jsonResponse(req, { error: "product_id required" }, 400);
     }
 
     const supabase = makeClient(req);
@@ -35,7 +29,7 @@ Deno.serve(async (req) => {
       .eq("channel", channel)
       .maybeSingle();
     if (salesError) {
-      return jsonResponse({ error: salesError.message }, 500);
+      return jsonResponse(req, { error: salesError.message }, 500);
     }
 
     const { data: cost, error: costError } = await supabase
@@ -44,7 +38,7 @@ Deno.serve(async (req) => {
       .eq("product_id", productId)
       .maybeSingle();
     if (costError) {
-      return jsonResponse({ error: costError.message }, 500);
+      return jsonResponse(req, { error: costError.message }, 500);
     }
 
     const sales = sale?.price_net ?? null;
@@ -53,7 +47,7 @@ Deno.serve(async (req) => {
     const db_margin =
       sales != null && sales > 0 && dbi != null ? Number((dbi / sales).toFixed(4)) : null;
 
-    return jsonResponse({
+    return jsonResponse(req, {
       sales_price_net_per_unit: sales,
       purchase_cost_net_per_unit: purchase,
       dbi,
@@ -61,6 +55,6 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return jsonResponse({ error: message }, 500);
+    return jsonResponse(req, { error: message }, 500);
   }
 });
