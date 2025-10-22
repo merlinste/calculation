@@ -1,0 +1,7 @@
+Meyer & Horn GmbH
+Rechnung Nr. 271033
+Rechnungsdatum 02.01.2024
+
+Pos Artikel Beschreibung Menge Einheit Anteil Einzelpreis Netto Gesamt Netto MwSt
+1 20853 Röstkaffee earlybird Bio Filterkaffee 42,500 KG 10,4700 445,33 7%
+60 79007 Gasspeicher- / RML Bilanzierungsumlage 42,500 KG 60% 0,1200 5,10 7%

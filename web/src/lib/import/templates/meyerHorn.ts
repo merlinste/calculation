@@ -183,19 +183,19 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
   }
   if (!lineTotalRaw) return null;
 
-  const numericTail: string[] = [];
+  const numericTail: Array<{ raw: string; cleaned: string; hadPercent: boolean }> = [];
   while (parts.length > 0) {
     const candidate = parts[parts.length - 1];
     if (!candidate) break;
-    const cleaned = candidate.replace(/[A-Za-z%€$]/g, "");
-    if (!NUMERIC_FIELD_REGEX.test(cleaned)) {
+    const cleaned = candidate.replace(/[A-Za-z€$]/g, "").replace(/%/g, "").trim();
+    if (!cleaned || !NUMERIC_FIELD_REGEX.test(cleaned)) {
       break;
     }
     const popped = parts.pop()!;
-    numericTail.unshift(popped.replace(/%$/, ""));
+    numericTail.unshift({ raw: popped, cleaned, hadPercent: /%/.test(popped) });
   }
 
-  let unitPriceRaw = numericTail.shift();
+  let unitPriceRaw: string | undefined;
 
   const isLikelyTax = (value: string | undefined) => {
     if (!value) return false;
@@ -207,10 +207,19 @@ function parseLine(bufferParts: string[], raw: string, fallbackLineNo: number): 
 
   let taxRateRaw: string | undefined;
   if (numericTail.length) {
-    const last = numericTail[numericTail.length - 1];
-    if (isLikelyTax(last)) {
-      taxRateRaw = numericTail.pop();
+    for (let i = numericTail.length - 1; i >= 0; i -= 1) {
+      const token = numericTail[i];
+      if (isLikelyTax(token.cleaned)) {
+        const [removed] = numericTail.splice(i, 1);
+        taxRateRaw = removed.cleaned;
+        break;
+      }
     }
+  }
+
+  const numericTailWithoutPercent = numericTail.filter((token) => !token.hadPercent);
+  if (!unitPriceRaw && numericTailWithoutPercent.length) {
+    unitPriceRaw = numericTailWithoutPercent.shift()!.cleaned;
   }
 
   let uomRaw = parts.pop();

@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,25 @@ const samples = [
   {
     file: "meyer_horn_isolated_labels.txt",
     description: "isolierte Labels für Nummer/Datum",
+  },
+  {
+    file: "meyer_horn_surcharge_percentage.txt",
+    description: "Spezial-Zuschlag mit Prozentspalte",
+    assert(draft: ReturnType<typeof parseMeyerHornTemplate>) {
+      const surcharge = draft.items.find((item) =>
+        item.source?.raw?.includes("Gasspeicher- / RML Bilanzierungsumlage"),
+      );
+      assert.ok(surcharge, "Gasspeicher-Zuschlag wurde nicht erkannt");
+      assert.equal(surcharge?.line_type, "surcharge", "Zeile nicht als Zuschlag markiert");
+      assert.equal(surcharge?.uom, "KG", "Mengeneinheit sollte auf KG normalisiert werden");
+      assert.equal(surcharge?.qty, 42.5, "Kilomenge sollte aus Produktpositionen übernommen werden");
+      const expectedUnitPrice = Number((5.1 / 42.5).toFixed(4));
+      assert.equal(
+        surcharge?.unit_price_net,
+        expectedUnitPrice,
+        "Zuschlag sollte korrekt auf Kilopreis verteilt werden",
+      );
+    },
   },
 ];
 
@@ -46,6 +66,10 @@ for (const sample of samples) {
       `Parser meldet weiterhin Warnung 'Keine Positionen erkannt' für Sample "${sample.description}"`,
     );
     process.exit(1);
+  }
+
+  if (typeof sample.assert === "function") {
+    sample.assert(draft);
   }
 
   console.log(`Sample "${sample.description}": ${draft.items.length} Position(en) erkannt.`);
