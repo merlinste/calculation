@@ -355,8 +355,11 @@ export default function PriceChart() {
       const results = await Promise.allSettled(
         products.map(async (product) => {
           const { data, error } = await supabase.functions.invoke(
-            `prices-product-history?product_id=${product.id}`,
-            { method: "GET" }
+            "prices-product-history",
+            {
+              headers: { "Content-Type": "application/json" },
+              body: { product_id: product.id },
+            }
           );
 
           if (error) {
