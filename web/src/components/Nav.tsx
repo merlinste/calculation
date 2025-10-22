@@ -44,8 +44,11 @@ export default function Nav({ onLogout }: Props) {
         <NavLink to="/prices" className={linkClassName}>
           Preisentwicklung
         </NavLink>
+        <NavLink to="/scenarios" className={linkClassName}>
+          Deckungsbeiträge
+        </NavLink>
         <NavLink to="/db" className={linkClassName}>
-          Szenario-Analyse
+          Datenbank
         </NavLink>
       </nav>
       <div className="topbar__actions">
