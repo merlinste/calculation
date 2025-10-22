@@ -54,4 +54,48 @@ for (const sample of samples) {
   for (const item of draft.items) {
     console.log(`  #${item.line_no}: ${item.product_name ?? "(ohne Name)"} -> ${item.qty} ${item.uom}`);
   }
+
+  const firstProduct = draft.items.find((item) => item.line_type === "product");
+  if (firstProduct) {
+    const feedbackDraft = parseMeyerHornTemplate(sampleText, "Meyer & Horn", [
+      {
+        supplier: "Meyer & Horn",
+        detected_description: `9999 ${firstProduct.product_name ?? ""} 00,00 00,00`,
+        detected_sku: null,
+        assigned_product_id: 12345,
+        assigned_product_sku: "AUTO-123",
+        assigned_product_name: "Test-Autofill",
+        assigned_uom: firstProduct.uom,
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+
+    const matched = feedbackDraft.items.find((item) => item.line_no === firstProduct.line_no);
+    if (!matched) {
+      console.error("Feedback-Test fehlgeschlagen: Position wurde nicht gefunden.");
+      process.exit(1);
+    }
+    if (
+      matched.product_id !== 12345 ||
+      matched.product_sku !== "AUTO-123" ||
+      matched.product_name !== "Test-Autofill"
+    ) {
+      console.error("Feedback-Test fehlgeschlagen: Zuordnung wurde nicht angewendet.");
+      process.exit(1);
+    }
+    if (!matched.issues.includes("manuell zugeordnet")) {
+      console.error("Feedback-Test fehlgeschlagen: Hinweis 'manuell zugeordnet' fehlt.");
+      process.exit(1);
+    }
+    if (!matched.issues.includes("textbasierter Abgleich")) {
+      console.error("Feedback-Test fehlgeschlagen: Hinweis 'textbasierter Abgleich' fehlt.");
+      process.exit(1);
+    }
+    if (!feedbackDraft.parser.warnings.includes("textbasierter Feedback-Abgleich")) {
+      console.error("Feedback-Test fehlgeschlagen: Parser-Warnung für textbasierten Abgleich fehlt.");
+      process.exit(1);
+    }
+
+    console.log("  Feedback-Mapping: Textabgleich erfolgreich (AUTO-123).");
+  }
 }

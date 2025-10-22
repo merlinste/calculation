@@ -14,7 +14,7 @@ import type {
   ParserFeedbackEntry,
 } from "../types";
 
-const VERSION = "2025-02-19";
+const VERSION = "2025-03-05";
 
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
@@ -406,8 +406,37 @@ function normaliseDescription(value: string | undefined | null): string {
     .replace(/\s+/g, " ");
 }
 
+function descriptionKeyVariants(value: string | undefined | null): string[] {
+  const base = normaliseDescription(value);
+  if (!base) return [];
+  const tokens = base.split(" ").filter(Boolean);
+  if (!tokens.length) return [];
+
+  const keys = new Set<string>();
+  keys.add(tokens.join(" "));
+
+  const textualTokens = tokens.filter((token) => /[a-z]/.test(token));
+  if (textualTokens.length) {
+    keys.add(textualTokens.join(" "));
+    const firstChunk = textualTokens.slice(0, 4).join(" ");
+    if (firstChunk) keys.add(firstChunk);
+  }
+
+  return Array.from(keys).filter(Boolean);
+}
+
 function normaliseSku(value: string | undefined | null): string {
   return value ? value.trim().toLowerCase() : "";
+}
+
+function addToLookup(
+  map: Map<string, ParserFeedbackEntry[]>,
+  key: string,
+  entry: ParserFeedbackEntry,
+) {
+  if (!map.has(key)) map.set(key, []);
+  const bucket = map.get(key)!;
+  if (!bucket.includes(entry)) bucket.push(entry);
 }
 
 function levenshteinDistance(a: string, b: string): number {
@@ -449,22 +478,19 @@ function buildFeedbackLookup(feedback: ParserFeedbackEntry[] | undefined): Feedb
   const entries: ParserFeedbackEntry[] = [];
 
   for (const entry of feedback ?? []) {
-    const descKey = normaliseDescription(entry.detected_description);
+    const descKeys = descriptionKeyVariants(entry.detected_description);
     const skuKey = normaliseSku(entry.detected_sku);
-    if (!descKey && !skuKey) continue;
+    if (!descKeys.length && !skuKey) continue;
 
     if (skuKey) {
-      if (!bySku.has(skuKey)) bySku.set(skuKey, []);
-      bySku.get(skuKey)!.push(entry);
+      addToLookup(bySku, skuKey, entry);
     }
 
-    if (descKey) {
-      const combinedKey = `${descKey}__${skuKey}`;
-      if (!byCombined.has(combinedKey)) byCombined.set(combinedKey, []);
-      byCombined.get(combinedKey)!.push(entry);
-
-      if (!byDescription.has(descKey)) byDescription.set(descKey, []);
-      byDescription.get(descKey)!.push(entry);
+    for (const key of descKeys) {
+      addToLookup(byDescription, key, entry);
+      if (skuKey) {
+        addToLookup(byCombined, `${key}__${skuKey}`, entry);
+      }
     }
 
     entries.push(entry);
@@ -498,20 +524,26 @@ function findFeedbackMatch(
   lookup: FeedbackLookup,
 ): FeedbackMatch | null {
   if (lookup.entries.length === 0) return null;
-  const sourceKey = normaliseDescription(line.source?.raw);
-  const nameKey = normaliseDescription(line.product_name);
   const skuKey = normaliseSku(line.product_sku);
+  const candidateKeySet = new Set<string>();
+  for (const key of descriptionKeyVariants(line.source?.raw)) {
+    if (key) candidateKeySet.add(key);
+  }
+  for (const key of descriptionKeyVariants(line.product_name)) {
+    if (key) candidateKeySet.add(key);
+  }
+  const candidateKeys = Array.from(candidateKeySet);
 
   if (skuKey) {
     const match = pickPreferredEntry(lookup.bySku.get(skuKey));
     if (match) return { entry: match, strategy: "sku" };
   }
 
-  const candidateKeys = [sourceKey, nameKey].filter(Boolean);
-
-  for (const key of candidateKeys) {
-    const match = pickPreferredEntry(lookup.byCombined.get(`${key}__${skuKey}`));
-    if (match) return { entry: match, strategy: "combined" };
+  if (skuKey) {
+    for (const key of candidateKeys) {
+      const match = pickPreferredEntry(lookup.byCombined.get(`${key}__${skuKey}`));
+      if (match) return { entry: match, strategy: "combined" };
+    }
   }
 
   for (const key of candidateKeys) {
@@ -523,13 +555,15 @@ function findFeedbackMatch(
 
   let best: { entry: ParserFeedbackEntry; distance: number } | null = null;
   for (const entry of lookup.entries) {
-    const entryKey = normaliseDescription(entry.detected_description);
-    if (!entryKey) continue;
-    for (const key of candidateKeys) {
-      const distance = levenshteinDistance(key, entryKey);
-      const threshold = Math.max(2, Math.floor(Math.max(key.length, entryKey.length) * 0.2));
-      if (distance <= threshold && (!best || distance < best.distance)) {
-        best = { entry, distance };
+    const entryKeys = descriptionKeyVariants(entry.detected_description);
+    if (!entryKeys.length) continue;
+    for (const entryKey of entryKeys) {
+      for (const key of candidateKeys) {
+        const distance = levenshteinDistance(key, entryKey);
+        const threshold = Math.max(2, Math.floor(Math.max(key.length, entryKey.length) * 0.2));
+        if (distance <= threshold && (!best || distance < best.distance)) {
+          best = { entry, distance };
+        }
       }
     }
   }
@@ -547,6 +581,7 @@ function applyFeedback(
   const lookup = buildFeedbackLookup(feedback);
   let applied = 0;
   let fuzzyMatches = 0;
+  let textMatches = 0;
 
   const items = baseItems.map((item) => {
     if (item.line_type !== "product") return item;
@@ -562,6 +597,7 @@ function applyFeedback(
 
     applied += 1;
     if (match.strategy === "fuzzy") fuzzyMatches += 1;
+    if (match.strategy === "description") textMatches += 1;
 
     const updated: InvoiceLineDraft = {
       ...item,
@@ -571,6 +607,9 @@ function applyFeedback(
 
     if (match.strategy === "fuzzy") {
       updated.issues = Array.from(new Set([...updated.issues, "unscharfer Abgleich"]));
+    }
+    if (match.strategy === "description") {
+      updated.issues = Array.from(new Set([...updated.issues, "textbasierter Abgleich"]));
     }
 
     if (match.entry.assigned_product_id != null) {
@@ -591,6 +630,7 @@ function applyFeedback(
 
   const warnings: string[] = [];
   if (applied > 0) warnings.push("manuell zugeordnet");
+  if (textMatches > 0) warnings.push("textbasierter Feedback-Abgleich");
   if (fuzzyMatches > 0) warnings.push("unscharfer Feedback-Abgleich");
 
   return { items, warnings: Array.from(new Set(warnings)) };
