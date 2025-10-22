@@ -1,43 +1,66 @@
 // GET /functions/v1/dbi?product_id=...&channel=LEH|B2B|D2C
-import { withCors } from "../_shared/cors.ts";
+import { corsHeaders } from "../_shared/cors.ts";
 import { makeClient } from "../_shared/supabaseClient.ts";
+
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
-    return new Response("ok", withCors(req));
+    return new Response("ok", { headers: corsHeaders });
   }
 
-  const url = new URL(req.url);
-  const productId = Number(url.searchParams.get("product_id") ?? "0");
-  const channel = (url.searchParams.get("channel") ?? "D2C") as "LEH"|"B2B"|"D2C";
+  if (req.method !== "GET") {
+    return jsonResponse({ error: "Use GET" }, 405);
+  }
 
-  if (!productId) return Response.json({ error: "product_id required" }, withCors(req, { status: 400 }));
+  try {
+    const url = new URL(req.url);
+    const productId = Number(url.searchParams.get("product_id") ?? "0");
+    const channel = (url.searchParams.get("channel") ?? "D2C") as "LEH" | "B2B" | "D2C";
 
-  const supabase = makeClient(req);
+    if (!productId) {
+      return jsonResponse({ error: "product_id required" }, 400);
+    }
 
-  const { data: sale, error: e1 } = await supabase
-    .from("current_sales_prices")
-    .select("product_id, channel, price_net")
-    .eq("product_id", productId).eq("channel", channel)
-    .maybeSingle();
-  if (e1) return Response.json({ error: e1.message }, withCors(req, { status: 500 }));
+    const supabase = makeClient(req);
 
-  const { data: cost, error: e2 } = await supabase
-    .from("current_purchase_costs")
-    .select("product_id, purchase_cost_net_per_unit")
-    .eq("product_id", productId)
-    .maybeSingle();
-  if (e2) return Response.json({ error: e2.message }, withCors(req, { status: 500 }));
+    const { data: sale, error: salesError } = await supabase
+      .from("current_sales_prices")
+      .select("product_id, channel, price_net")
+      .eq("product_id", productId)
+      .eq("channel", channel)
+      .maybeSingle();
+    if (salesError) {
+      return jsonResponse({ error: salesError.message }, 500);
+    }
 
-  const sales = sale?.price_net ?? null;
-  const purchase = cost?.purchase_cost_net_per_unit ?? null;
-  const dbi = (sales!=null && purchase!=null) ? Number((sales - purchase).toFixed(4)) : null;
-  const db_margin = (sales!=null && sales>0 && dbi!=null) ? Number((dbi / sales).toFixed(4)) : null;
+    const { data: cost, error: costError } = await supabase
+      .from("current_purchase_costs")
+      .select("product_id, purchase_cost_net_per_unit")
+      .eq("product_id", productId)
+      .maybeSingle();
+    if (costError) {
+      return jsonResponse({ error: costError.message }, 500);
+    }
 
-  return Response.json({
-    sales_price_net_per_unit: sales,
-    purchase_cost_net_per_unit: purchase,
-    dbi,
-    db_margin
-  }, withCors(req));
+    const sales = sale?.price_net ?? null;
+    const purchase = cost?.purchase_cost_net_per_unit ?? null;
+    const dbi = sales != null && purchase != null ? Number((sales - purchase).toFixed(4)) : null;
+    const db_margin =
+      sales != null && sales > 0 && dbi != null ? Number((dbi / sales).toFixed(4)) : null;
+
+    return jsonResponse({
+      sales_price_net_per_unit: sales,
+      purchase_cost_net_per_unit: purchase,
+      dbi,
+      db_margin,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return jsonResponse({ error: message }, 500);
+  }
 });
