@@ -34,12 +34,12 @@ jobs:
       - uses: supabase/setup-cli@v1
         # optional: feste Version
         # with: { version: '2.20.3' }
-      - name: Deploy import-invoice
+      - name: Deploy Supabase functions
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           supabase login --token "$SUPABASE_ACCESS_TOKEN"
           # optional: schneller/robuster in CI
-          # supabase functions deploy import-invoice --project-ref "$SUPABASE_PROJECT_REF" --use-api
-          supabase functions deploy import-invoice --project-ref "$SUPABASE_PROJECT_REF"
+          # supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF" --use-api
+          supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
