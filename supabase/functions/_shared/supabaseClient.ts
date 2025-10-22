@@ -1,5 +1,5 @@
 // Create a client that forwards the end-user's JWT (RLS greift!)
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 export function makeClient(req: Request) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
