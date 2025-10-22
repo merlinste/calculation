@@ -32,6 +32,8 @@ const percentFormatter = new Intl.NumberFormat("de-DE", {
 const dateFormatter = new Intl.DateTimeFormat("de-DE");
 
 const formatCurrency = (value: number) => currencyFormatter.format(value);
+const SESSION_ERROR_MESSAGE = "Sitzung konnte nicht geladen werden.";
+const LOGIN_REQUIRED_MESSAGE = "Bitte melden Sie sich an, um Preisdaten zu laden.";
 const formatDate = (value: string) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -352,6 +354,29 @@ export default function PriceChart() {
     setHistoryErrors({});
 
     (async () => {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (isCancelled) return;
+
+      if (sessionError) {
+        setMessage(SESSION_ERROR_MESSAGE);
+        setIsLoadingHistories(false);
+        return;
+      }
+
+      if (!session) {
+        setMessage(LOGIN_REQUIRED_MESSAGE);
+        setIsLoadingHistories(false);
+        return;
+      }
+
+      setMessage((current) =>
+        current === SESSION_ERROR_MESSAGE || current === LOGIN_REQUIRED_MESSAGE ? null : current,
+      );
+
       const results = await Promise.allSettled(
         products.map(async (product) => {
           const params = new URLSearchParams({
@@ -362,6 +387,7 @@ export default function PriceChart() {
             `prices-product-history?${params.toString()}`,
             {
               method: "GET",
+              headers: { Authorization: `Bearer ${session.access_token}` },
             }
           );
 
