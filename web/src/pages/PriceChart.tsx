@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FunctionsFetchError } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
+import { correctPriceOutliers } from "../lib/priceHistory";
 
 type Product = {
   id: number;
@@ -41,7 +42,7 @@ const formatDate = (value: string) => {
 };
 
 const normalizeHistory = (history: any[]): PricePoint[] => {
-  return (history || [])
+  const normalized = (history || [])
     .map((entry) => {
       const rawValue = entry.price_per_base_unit_net;
       const parsedValue =
@@ -59,6 +60,8 @@ const normalizeHistory = (history: any[]): PricePoint[] => {
     .sort(
       (a, b) => new Date(a.date_effective).getTime() - new Date(b.date_effective).getTime()
     );
+
+  return correctPriceOutliers(normalized);
 };
 
 const describeChange = (
