@@ -63,8 +63,14 @@ const formatPercent = (value: number | null) =>
     : `${percentFormatter.format(value)} %`;
 const formatInteger = (value: number) => numberFormatter.format(value);
 
-const PRODUCTS_URL = "https://earlybird-calculation.netlify.app/products";
-const PRICES_URL = "https://earlybird-calculation.netlify.app/prices";
+const withBaseUrl = (path: string) => {
+  const baseUrl = import.meta.env.BASE_URL ?? "/";
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return `${normalizedBase}${path.replace(/^\//, "")}`;
+};
+
+const PRODUCTS_URL = withBaseUrl("data/products.json");
+const PRICES_URL = withBaseUrl("data/prices.json");
 
 const fallbackArticles: Article[] = [
   {
