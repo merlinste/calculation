@@ -8,10 +8,10 @@ type Article = {
   lastPurchasePrice: number;
   defaultSalesPrice: number;
   defaultVolume: number;
-  logisticsCost: number;
   packagingCost: number;
-  marketingCost: number;
-  otherVariableCost: number;
+  dualSystemCost: number;
+  paymentCost: number;
+  shippingCost: number;
   fixedCostShare: number;
   channelFeePerUnit?: number;
   listingFeePerUnit?: number;
@@ -21,12 +21,10 @@ type ArticleInput = {
   salesPrice: number;
   discountPerUnit: number;
   purchasePrice: number;
-  logisticsCost: number;
   packagingCost: number;
-  marketingCost: number;
-  otherVariableCost: number;
-  channelFeePerUnit: number;
-  listingFeePerUnit: number;
+  dualSystemCost: number;
+  paymentCost: number;
+  shippingCost: number;
   volume: number;
   fixedCost: number;
 };
@@ -35,11 +33,11 @@ type ArticleResult = {
   article: Article;
   inputs: ArticleInput;
   netPricePerUnit: number;
-  variableCostPerUnit: number;
+  generationCostPerUnit: number;
   contributionPerUnit: number;
   revenue: number;
-  variableCost: number;
-  contribution: number;
+  generationCost: number;
+  absoluteContribution: number;
   profit: number;
   marginPct: number | null;
   profitMarginPct: number | null;
@@ -381,10 +379,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 1.84,
     defaultSalesPrice: 4.49,
     defaultVolume: 14800,
-    logisticsCost: 0.32,
     packagingCost: 0.18,
-    marketingCost: 0.22,
-    otherVariableCost: 0.35,
+    dualSystemCost: 0.22,
+    paymentCost: 0.35,
+    shippingCost: 0.32,
     fixedCostShare: 4200,
   },
   {
@@ -395,10 +393,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 4.9,
     defaultSalesPrice: 11.99,
     defaultVolume: 6200,
-    logisticsCost: 0.54,
     packagingCost: 0.42,
-    marketingCost: 0.35,
-    otherVariableCost: 0.62,
+    dualSystemCost: 0.35,
+    paymentCost: 0.62,
+    shippingCost: 0.54,
     fixedCostShare: 3100,
   },
   {
@@ -409,10 +407,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 3.75,
     defaultSalesPrice: 8.9,
     defaultVolume: 9800,
-    logisticsCost: 0.48,
     packagingCost: 0.27,
-    marketingCost: 0.31,
-    otherVariableCost: 0.41,
+    dualSystemCost: 0.31,
+    paymentCost: 0.41,
+    shippingCost: 0.48,
     fixedCostShare: 3600,
   },
   {
@@ -423,10 +421,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 6.45,
     defaultSalesPrice: 13.9,
     defaultVolume: 5400,
-    logisticsCost: 0.62,
     packagingCost: 0.36,
-    marketingCost: 0.42,
-    otherVariableCost: 0.55,
+    dualSystemCost: 0.42,
+    paymentCost: 0.55,
+    shippingCost: 0.62,
     fixedCostShare: 2950,
   },
   {
@@ -437,10 +435,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 3.1,
     defaultSalesPrice: 7.9,
     defaultVolume: 8700,
-    logisticsCost: 0.44,
     packagingCost: 0.3,
-    marketingCost: 0.25,
-    otherVariableCost: 0.38,
+    dualSystemCost: 0.25,
+    paymentCost: 0.38,
+    shippingCost: 0.44,
     fixedCostShare: 2800,
   },
   {
@@ -451,10 +449,10 @@ const fallbackArticles: Article[] = [
     lastPurchasePrice: 2.9,
     defaultSalesPrice: 6.9,
     defaultVolume: 9100,
-    logisticsCost: 0.39,
     packagingCost: 0.28,
-    marketingCost: 0.22,
-    otherVariableCost: 0.35,
+    dualSystemCost: 0.22,
+    paymentCost: 0.35,
+    shippingCost: 0.39,
     fixedCostShare: 2650,
   },
 ];
@@ -589,12 +587,10 @@ const createInputsFromArticle = (article: Article): ArticleInput => ({
   salesPrice: article.defaultSalesPrice,
   discountPerUnit: 0,
   purchasePrice: article.lastPurchasePrice,
-  logisticsCost: article.logisticsCost,
   packagingCost: article.packagingCost,
-  marketingCost: article.marketingCost,
-  otherVariableCost: article.otherVariableCost,
-  channelFeePerUnit: article.channelFeePerUnit ?? 0,
-  listingFeePerUnit: article.listingFeePerUnit ?? 0,
+  dualSystemCost: article.dualSystemCost,
+  paymentCost: article.paymentCost,
+  shippingCost: article.shippingCost,
   volume: article.defaultVolume,
   fixedCost: article.fixedCostShare,
 });
@@ -785,45 +781,50 @@ const ScenarioAnalysis = () => {
               "net_price",
             ]);
 
-          const logisticsCost =
-            (priceRecord &&
-              pickFirstNumber(priceRecord, [
-                "logistics_cost",
-                "logistic_cost",
-                "freight_cost",
-              ])) ?? 0;
-
           const packagingCost =
             (priceRecord &&
               pickFirstNumber(priceRecord, ["packaging_cost", "packing_cost"])) ?? 0;
 
-          const marketingCost =
-            (priceRecord &&
-              pickFirstNumber(priceRecord, ["marketing_cost", "marketing"])) ?? 0;
-
-          const otherVariableCost =
+          const dualSystemCost =
             (priceRecord &&
               pickFirstNumber(priceRecord, [
+                "dual_system_cost",
+                "dual_system",
+                "epr_cost",
+                "epr_fee",
+                "packaging_license_cost",
+                "packaging_licence_cost",
+                "licence_cost",
+                "license_cost",
+                "marketing_cost",
+                "marketing",
+              ])) ?? 0;
+
+          const paymentCost =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, [
+                "payment_cost",
+                "payment_fee",
+                "payment_fees",
+                "payment",
+                "transaction_fee",
+                "transaction_fees",
                 "other_variable_cost",
                 "other_variable_costs",
                 "other_cost",
                 "other_costs",
               ])) ?? 0;
 
-          const channelFeePerUnit =
+          const shippingCost =
             (priceRecord &&
               pickFirstNumber(priceRecord, [
-                "channel_fee",
-                "channel_fee_per_unit",
-                "distribution_fee",
-              ])) ?? 0;
-
-          const listingFeePerUnit =
-            (priceRecord &&
-              pickFirstNumber(priceRecord, [
-                "listing_fee",
-                "slotting_fee",
-                "listing_fee_per_unit",
+                "shipping_cost",
+                "shipping",
+                "logistics_cost",
+                "logistic_cost",
+                "freight_cost",
+                "freight",
+                "delivery_cost",
               ])) ?? 0;
 
           const fixedCostShare =
@@ -876,18 +877,14 @@ const ScenarioAnalysis = () => {
               Number.isFinite(volume) && volume > 0
                 ? volume
                 : fallbackArticle?.defaultVolume ?? 0,
-            logisticsCost:
-              logisticsCost || fallbackArticle?.logisticsCost || 0,
             packagingCost:
               packagingCost || fallbackArticle?.packagingCost || 0,
-            marketingCost:
-              marketingCost || fallbackArticle?.marketingCost || 0,
-            otherVariableCost:
-              otherVariableCost || fallbackArticle?.otherVariableCost || 0,
-            channelFeePerUnit:
-              channelFeePerUnit || fallbackArticle?.channelFeePerUnit || 0,
-            listingFeePerUnit:
-              listingFeePerUnit || fallbackArticle?.listingFeePerUnit || 0,
+            dualSystemCost:
+              dualSystemCost || fallbackArticle?.dualSystemCost || 0,
+            paymentCost:
+              paymentCost || fallbackArticle?.paymentCost || 0,
+            shippingCost:
+              shippingCost || fallbackArticle?.shippingCost || 0,
             fixedCostShare:
               fixedCostShare || fallbackArticle?.fixedCostShare || 0,
           } satisfies Article;
@@ -1007,15 +1004,17 @@ const ScenarioAnalysis = () => {
 
         const inputs = articleInputs[articleId] ?? createInputsFromArticle(article);
         const netPricePerUnit = inputs.salesPrice - inputs.discountPerUnit;
-        const variableCostPerUnit = activeTemplate.variableCostFields.reduce(
-          (total, field) => total + inputs[field],
-          0
-        );
-        const contributionPerUnit = netPricePerUnit - variableCostPerUnit;
+        const generationCostPerUnit =
+          inputs.purchasePrice +
+          inputs.packagingCost +
+          inputs.dualSystemCost +
+          inputs.paymentCost +
+          inputs.shippingCost;
+        const contributionPerUnit = netPricePerUnit - generationCostPerUnit;
         const revenue = netPricePerUnit * inputs.volume;
-        const variableCost = variableCostPerUnit * inputs.volume;
-        const contribution = contributionPerUnit * inputs.volume;
-        const profit = contribution - inputs.fixedCost;
+        const generationCost = generationCostPerUnit * inputs.volume;
+        const absoluteContribution = contributionPerUnit * inputs.volume;
+        const profit = absoluteContribution - inputs.fixedCost;
         const marginPct = netPricePerUnit > 0 ? (contributionPerUnit / netPricePerUnit) * 100 : null;
         const profitMarginPct = revenue > 0 ? (profit / revenue) * 100 : null;
 
@@ -1023,11 +1022,11 @@ const ScenarioAnalysis = () => {
           article,
           inputs,
           netPricePerUnit,
-          variableCostPerUnit,
+          generationCostPerUnit,
           contributionPerUnit,
           revenue,
-          variableCost,
-          contribution,
+          generationCost,
+          absoluteContribution,
           profit,
           marginPct,
           profitMarginPct,
@@ -1049,8 +1048,8 @@ const ScenarioAnalysis = () => {
     return articleResults.reduce(
       (acc, result) => {
         acc.revenue += result.revenue;
-        acc.variableCost += result.variableCost;
-        acc.contribution += result.contribution;
+        acc.generationCost += result.generationCost;
+        acc.absoluteContribution += result.absoluteContribution;
         acc.profit += result.profit;
         acc.volume += result.inputs.volume;
         acc.fixedCost += result.inputs.fixedCost;
@@ -1058,8 +1057,8 @@ const ScenarioAnalysis = () => {
       },
       {
         revenue: 0,
-        variableCost: 0,
-        contribution: 0,
+        generationCost: 0,
+        absoluteContribution: 0,
         profit: 0,
         volume: 0,
         fixedCost: 0,
@@ -1072,8 +1071,8 @@ const ScenarioAnalysis = () => {
       if (!acc[result.article.group]) {
         acc[result.article.group] = {
           revenue: 0,
-          variableCost: 0,
-          contribution: 0,
+          generationCost: 0,
+          absoluteContribution: 0,
           profit: 0,
           volume: 0,
           fixedCost: 0,
@@ -1082,8 +1081,8 @@ const ScenarioAnalysis = () => {
 
       const group = acc[result.article.group];
       group.revenue += result.revenue;
-      group.variableCost += result.variableCost;
-      group.contribution += result.contribution;
+      group.generationCost += result.generationCost;
+      group.absoluteContribution += result.absoluteContribution;
       group.profit += result.profit;
       group.volume += result.inputs.volume;
       group.fixedCost += result.inputs.fixedCost;
@@ -1196,35 +1195,12 @@ const ScenarioAnalysis = () => {
       ) : (
         <>
           <section className="section">
-            <div className="section-header section-header--with-actions">
-              <div className="section-header__intro">
-                <h2>Kalkulation pro Artikel</h2>
-                <p>
-                  Passe Einkaufspreise, variable Kosten und Absatzannahmen direkt
-                  in der Matrix an. Berechnungen aktualisieren sich sofort.
-                </p>
-              </div>
-              <div className="section-header__actions">
-                <label className="template-selector" htmlFor="contribution-template">
-                  <span>Template auswählen</span>
-                  <select
-                    id="contribution-template"
-                    value={selectedTemplateId}
-                    onChange={(event) =>
-                      setSelectedTemplateId(event.target.value as ContributionTemplateId)
-                    }
-                  >
-                    {Object.values(contributionTemplates).map((template) => (
-                      <option key={template.id} value={template.id}>
-                        {template.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {activeTemplate.description && (
-                  <p className="section-header__hint">{activeTemplate.description}</p>
-                )}
-              </div>
+            <div className="section-header">
+              <h2>Kalkulation pro Artikel</h2>
+              <p>
+                Passe Einkaufspreise, Kostenbestandteile und Absatzannahmen direkt
+                in der Matrix an. Berechnungen aktualisieren sich sofort.
+              </p>
             </div>
             <div className="matrix-wrapper">
               <table className="article-matrix">
@@ -1242,29 +1218,158 @@ const ScenarioAnalysis = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {activeTemplate.rows.map((row) => (
-                    <tr key={row.label}>
-                      <th>{row.label}</th>
-                      {activeArticleIds.map((articleId) => {
-                        if (row.type === "input") {
-                          return (
-                            <td key={articleId}>
-                              {renderInput(articleId, row.field, row.step, row.min)}
-                            </td>
-                          );
-                        }
-
-                        const result = resultByArticleId[articleId];
-                        return (
-                          <td key={articleId}>
-                            <span className="matrix-value">
-                              {formatMatrixValue(row.format, row.getValue(result))}
-                            </span>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  <tr>
+                    <th>Verkaufspreis (netto)</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "salesPrice")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Nachlass je Einheit</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "discountPerUnit")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Netto Verkaufspreis</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(resultByArticleId[articleId]?.netPricePerUnit ?? 0)}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Einkaufspreis (netto)</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "purchasePrice")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Verpackung</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "packagingCost")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Duales System</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "dualSystemCost")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Payment</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "paymentCost")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Shipping</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "shippingCost")}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Erzeugungskosten</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(
+                            resultByArticleId[articleId]?.generationCostPerUnit ?? 0
+                          )}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Deckungsbeitrag je Einheit</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(
+                            resultByArticleId[articleId]?.contributionPerUnit ?? 0
+                          )}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>% Deckungsbeitrag</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatPercent(resultByArticleId[articleId]?.marginPct ?? null)}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Absatz / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "volume", 1, 0)}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Netto-Umsatz / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(resultByArticleId[articleId]?.revenue ?? 0)}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Erzeugungskosten / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(resultByArticleId[articleId]?.generationCost ?? 0)}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Deckungsbeitrag / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(
+                            resultByArticleId[articleId]?.absoluteContribution ?? 0
+                          )}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Fixkostenanteil / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>{renderInput(articleId, "fixedCost", 10)}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Ergebnis / Monat</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatCurrency(resultByArticleId[articleId]?.profit ?? 0)}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th>Profitabilität %</th>
+                    {activeArticleIds.map((articleId) => (
+                      <td key={articleId}>
+                        <span className="matrix-value">
+                          {formatPercent(
+                            resultByArticleId[articleId]?.profitMarginPct ?? null
+                          )}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -1294,19 +1399,19 @@ const ScenarioAnalysis = () => {
                       <dd>{formatCurrency(result.revenue)}</dd>
                     </div>
                     <div>
-                      <dt>Variable Kosten</dt>
-                      <dd>{formatCurrency(result.variableCost)}</dd>
+                      <dt>Erzeugungskosten</dt>
+                      <dd>{formatCurrency(result.generationCost)}</dd>
                     </div>
                     <div>
                       <dt>Deckungsbeitrag</dt>
-                      <dd>{formatCurrency(result.contribution)}</dd>
+                      <dd>{formatCurrency(result.absoluteContribution)}</dd>
                     </div>
                     <div>
                       <dt>Ergebnis</dt>
                       <dd>{formatCurrency(result.profit)}</dd>
                     </div>
                     <div>
-                      <dt>DB-Marge</dt>
+                      <dt>% Deckungsbeitrag</dt>
                       <dd>{formatPercent(result.marginPct)}</dd>
                     </div>
                     <div>
@@ -1340,12 +1445,12 @@ const ScenarioAnalysis = () => {
                     <dd>{formatCurrency(overallTotals.revenue)}</dd>
                   </div>
                   <div>
-                    <dt>Variable Kosten</dt>
-                    <dd>{formatCurrency(overallTotals.variableCost)}</dd>
+                    <dt>Erzeugungskosten</dt>
+                    <dd>{formatCurrency(overallTotals.generationCost)}</dd>
                   </div>
                   <div>
                     <dt>Deckungsbeitrag</dt>
-                    <dd>{formatCurrency(overallTotals.contribution)}</dd>
+                    <dd>{formatCurrency(overallTotals.absoluteContribution)}</dd>
                   </div>
                   <div>
                     <dt>Fixkosten</dt>
@@ -1376,7 +1481,7 @@ const ScenarioAnalysis = () => {
                       <tr key={groupName}>
                         <th>{groupName}</th>
                         <td>{formatCurrency(totals.revenue)}</td>
-                        <td>{formatCurrency(totals.contribution)}</td>
+                        <td>{formatCurrency(totals.absoluteContribution)}</td>
                         <td>{formatCurrency(totals.profit)}</td>
                       </tr>
                     ))}
