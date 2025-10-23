@@ -1473,6 +1473,23 @@ textarea:disabled {
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
 }
 
+.status-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+}
+
+.status-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.status-hint--error {
+  color: var(--danger);
+}
+
 .section-header h2 {
   margin: 0;
   font-size: 1.35rem;

@@ -1,4 +1,4 @@
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 
 type Article = {
   id: string;
@@ -63,7 +63,10 @@ const formatPercent = (value: number | null) =>
     : `${percentFormatter.format(value)} %`;
 const formatInteger = (value: number) => numberFormatter.format(value);
 
-const defaultArticles: Article[] = [
+const PRODUCTS_URL = "https://earlybird-calculation.netlify.app/products";
+const PRICES_URL = "https://earlybird-calculation.netlify.app/prices";
+
+const fallbackArticles: Article[] = [
   {
     id: "capsules-10",
     sku: "KAP-010",
@@ -156,6 +159,126 @@ const parseNumber = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const toNumber = (value: unknown): number => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const normalized = value.replace(",", ".").replace(/[^0-9.-]/g, "");
+    const parsed = Number.parseFloat(normalized);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.NaN;
+};
+
+const flattenRecords = (payload: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(
+      (item): item is Record<string, unknown> =>
+        Boolean(item) && typeof item === "object"
+    );
+  }
+
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (Array.isArray(record.data)) {
+    return flattenRecords(record.data);
+  }
+
+  const values: Record<string, unknown>[] = [];
+  for (const value of Object.values(record)) {
+    if (Array.isArray(value)) {
+      values.push(...flattenRecords(value));
+    }
+  }
+
+  return values;
+};
+
+const pickFirstNumber = (
+  record: Record<string, unknown>,
+  keys: string[]
+): number | undefined => {
+  for (const key of keys) {
+    if (key in record) {
+      const numeric = toNumber(record[key]);
+      if (Number.isFinite(numeric)) {
+        return numeric;
+      }
+    }
+  }
+
+  return undefined;
+};
+
+const pickFirstString = (
+  record: Record<string, unknown>,
+  keys: string[]
+): string | undefined => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+
+  return undefined;
+};
+
+const extractTimestamp = (record: Record<string, unknown>): number | null => {
+  const candidates = [
+    record.date,
+    record.date_effective,
+    record.valid_from,
+    record.validUntil,
+    record.valid_until,
+    record.timestamp,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" || candidate instanceof Date) {
+      const value =
+        candidate instanceof Date ? candidate.toISOString() : candidate;
+      const parsed = new Date(value);
+      const time = parsed.getTime();
+      if (Number.isFinite(time)) {
+        return time;
+      }
+    }
+  }
+
+  return null;
+};
+
+const pickLatestRecord = (
+  records: Record<string, unknown>[]
+): Record<string, unknown> | undefined => {
+  if (records.length === 0) {
+    return undefined;
+  }
+
+  let latest = records[records.length - 1];
+  let latestTimestamp = extractTimestamp(latest);
+
+  for (const record of records) {
+    const timestamp = extractTimestamp(record);
+    if (timestamp !== null && (latestTimestamp === null || timestamp > latestTimestamp)) {
+      latest = record;
+      latestTimestamp = timestamp;
+    }
+  }
+
+  return latest;
+};
+
 const createInputsFromArticle = (article: Article): ArticleInput => ({
   salesPrice: article.defaultSalesPrice,
   discountPerUnit: 0,
@@ -168,28 +291,334 @@ const createInputsFromArticle = (article: Article): ArticleInput => ({
   fixedCost: article.fixedCostShare,
 });
 
+
 const ScenarioAnalysis = () => {
+  const [articles, setArticles] = useState<Article[]>(fallbackArticles);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [selectedArticles, setSelectedArticles] = useState<string[]>(
+    fallbackArticles.slice(0, 3).map((article) => article.id)
+  );
+
+  const [articleInputs, setArticleInputs] = useState<Record<string, ArticleInput>>(() =>
+    fallbackArticles.reduce<Record<string, ArticleInput>>((acc, article) => {
+      acc[article.id] = createInputsFromArticle(article);
+      return acc;
+    }, {})
+  );
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadArticles = async () => {
+      try {
+        setIsLoading(true);
+        setLoadError(null);
+
+        const productsResponse = await fetch(PRODUCTS_URL, {
+          headers: { Accept: "application/json" },
+        });
+
+        if (!productsResponse.ok) {
+          throw new Error(`Produkte konnten nicht geladen werden (${productsResponse.status})`);
+        }
+
+        const parseResponse = async (response: Response) => {
+          try {
+            return await response.json();
+          } catch {
+            throw new Error(`Antwort von ${response.url} konnte nicht gelesen werden`);
+          }
+        };
+
+        const productsPayload = await parseResponse(productsResponse);
+
+        let pricesPayload: unknown = [];
+        let priceWarning: string | null = null;
+
+        try {
+          const pricesResponse = await fetch(PRICES_URL, {
+            headers: { Accept: "application/json" },
+          });
+
+          if (!pricesResponse.ok) {
+            throw new Error(`Preise konnten nicht geladen werden (${pricesResponse.status})`);
+          }
+
+          pricesPayload = await parseResponse(pricesResponse);
+        } catch (error) {
+          priceWarning = error instanceof Error ? error.message : String(error ?? "");
+        }
+
+        const productRecords = flattenRecords(productsPayload);
+        const priceRecords = flattenRecords(pricesPayload);
+
+        if (productRecords.length === 0) {
+          throw new Error("Es wurden keine Produkte gefunden");
+        }
+
+        const priceById = new Map<string, Record<string, unknown>[]>();
+        const priceBySku = new Map<string, Record<string, unknown>[]>();
+
+        const registerRecord = (
+          map: Map<string, Record<string, unknown>[]>,
+          key: unknown,
+          record: Record<string, unknown>
+        ) => {
+          if (typeof key === "string" || typeof key === "number") {
+            const normalized = String(key).trim();
+            if (!normalized) {
+              return;
+            }
+            const list = map.get(normalized) ?? [];
+            list.push(record);
+            map.set(normalized, list);
+          }
+        };
+
+        for (const record of priceRecords) {
+          registerRecord(priceById, record["id"], record);
+          registerRecord(priceById, record["product_id"], record);
+          registerRecord(priceById, record["productId"], record);
+
+          const nestedProduct = record["product"];
+          if (nestedProduct && typeof nestedProduct === "object") {
+            const nestedRecord = nestedProduct as Record<string, unknown>;
+            registerRecord(priceById, nestedRecord["id"], record);
+            registerRecord(priceBySku, nestedRecord["sku"], record);
+          }
+
+          registerRecord(priceBySku, record["sku"], record);
+          registerRecord(priceBySku, record["product_sku"], record);
+        }
+
+        const fallbackBySku = new Map(
+          fallbackArticles.map((article) => [article.sku.toLowerCase(), article] as const)
+        );
+        const fallbackById = new Map(
+          fallbackArticles.map((article) => [article.id, article] as const)
+        );
+
+        const normalizedArticles: Article[] = productRecords.map((record, index) => {
+          const candidates: string[] = [];
+          const addCandidate = (value: unknown) => {
+            if (typeof value === "string" || typeof value === "number") {
+              const normalized = String(value).trim();
+              if (normalized) {
+                candidates.push(normalized);
+              }
+            }
+          };
+
+          addCandidate(record["id"]);
+          addCandidate(record["product_id"]);
+          addCandidate(record["productId"]);
+          addCandidate(record["sku"]);
+          addCandidate(record["article_number"]);
+
+          const id = candidates[0] ?? `product-${index}`;
+          const sku =
+            pickFirstString(record, ["sku", "article_number", "articleNo", "ean"]) ?? id;
+          const group =
+            pickFirstString(record, ["group", "product_group", "category", "collection"]) ??
+            "Weitere";
+          const name =
+            pickFirstString(record, ["name", "title", "product_name"]) ?? sku;
+
+          const volume =
+            pickFirstNumber(record, [
+              "default_volume",
+              "defaultVolume",
+              "volume",
+              "forecast_volume",
+              "sales_volume",
+            ]) ?? 0;
+
+          const priceCandidates: Record<string, unknown>[] = [];
+          for (const candidate of candidates) {
+            const matches = priceById.get(candidate);
+            if (matches) {
+              priceCandidates.push(...matches);
+            }
+          }
+
+          const skuMatches = priceBySku.get(sku);
+          if (skuMatches) {
+            priceCandidates.push(...skuMatches);
+          }
+
+          const priceRecord = pickLatestRecord(priceCandidates);
+
+          const purchasePriceFromPriceRecord =
+            priceRecord &&
+            pickFirstNumber(priceRecord, [
+              "purchase_price_net",
+              "purchase_price",
+              "last_purchase_price",
+              "latest_purchase_price",
+              "purchasePriceNet",
+              "purchasePrice",
+              "purchase",
+              "net_cost",
+            ]);
+
+          const salesPriceFromPriceRecord =
+            priceRecord &&
+            pickFirstNumber(priceRecord, [
+              "sales_price_net",
+              "sales_price",
+              "price_net",
+              "price",
+              "net_price",
+            ]);
+
+          const logisticsCost =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, [
+                "logistics_cost",
+                "logistic_cost",
+                "freight_cost",
+              ])) ?? 0;
+
+          const packagingCost =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, ["packaging_cost", "packing_cost"])) ?? 0;
+
+          const marketingCost =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, ["marketing_cost", "marketing"])) ?? 0;
+
+          const otherVariableCost =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, [
+                "other_variable_cost",
+                "other_variable_costs",
+                "other_cost",
+                "other_costs",
+              ])) ?? 0;
+
+          const fixedCostShare =
+            (priceRecord &&
+              pickFirstNumber(priceRecord, [
+                "fixed_cost",
+                "fixed_cost_share",
+                "fixed_costs",
+              ])) ?? 0;
+
+          const purchasePrice =
+            purchasePriceFromPriceRecord ??
+            pickFirstNumber(record, [
+              "purchase_price",
+              "purchase_price_net",
+              "last_purchase_price",
+              "purchase",
+            ]) ??
+            0;
+
+          const salesPrice =
+            salesPriceFromPriceRecord ??
+            pickFirstNumber(record, [
+              "sales_price",
+              "sales_price_net",
+              "price",
+              "price_net",
+            ]) ??
+            (Number.isFinite(purchasePrice) && purchasePrice > 0
+              ? purchasePrice * 1.3
+              : Number.NaN);
+
+          const fallbackArticle =
+            fallbackById.get(id) ?? fallbackBySku.get(sku.toLowerCase());
+
+          return {
+            id,
+            sku,
+            name,
+            group,
+            lastPurchasePrice:
+              Number.isFinite(purchasePrice) && purchasePrice > 0
+                ? purchasePrice
+                : fallbackArticle?.lastPurchasePrice ?? 0,
+            defaultSalesPrice:
+              Number.isFinite(salesPrice) && salesPrice > 0
+                ? salesPrice
+                : fallbackArticle?.defaultSalesPrice ?? 0,
+            defaultVolume:
+              Number.isFinite(volume) && volume > 0
+                ? volume
+                : fallbackArticle?.defaultVolume ?? 0,
+            logisticsCost:
+              logisticsCost || fallbackArticle?.logisticsCost || 0,
+            packagingCost:
+              packagingCost || fallbackArticle?.packagingCost || 0,
+            marketingCost:
+              marketingCost || fallbackArticle?.marketingCost || 0,
+            otherVariableCost:
+              otherVariableCost || fallbackArticle?.otherVariableCost || 0,
+            fixedCostShare:
+              fixedCostShare || fallbackArticle?.fixedCostShare || 0,
+          } satisfies Article;
+        });
+
+        if (!isCancelled && normalizedArticles.length > 0) {
+          setArticles(normalizedArticles);
+          setLoadError(priceWarning);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          const message =
+            error instanceof Error ? error.message : String(error ?? "");
+          setLoadError(message || "Unbekannter Fehler beim Laden der Artikeldaten");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadArticles();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   const articleMap = useMemo(
     () =>
-      defaultArticles.reduce<Record<string, Article>>((acc, article) => {
+      articles.reduce<Record<string, Article>>((acc, article) => {
         acc[article.id] = article;
         return acc;
       }, {}),
-    []
+    [articles]
   );
 
-  const [selectedArticles, setSelectedArticles] = useState<string[]>([
-    "capsules-10",
-    "beans-250",
-    "espresso-ground",
-  ]);
+  useEffect(() => {
+    const availableIds = new Set(articles.map((article) => article.id));
 
-  const [articleInputs, setArticleInputs] = useState<Record<string, ArticleInput>>(
-    () =>
-      defaultArticles.reduce<Record<string, ArticleInput>>((acc, article) => {
-        acc[article.id] = createInputsFromArticle(article);
-        return acc;
-      }, {})
+    setArticleInputs((prev) => {
+      const next: Record<string, ArticleInput> = {};
+      for (const article of articles) {
+        next[article.id] = prev[article.id] ?? createInputsFromArticle(article);
+      }
+      return next;
+    });
+
+    setSelectedArticles((prev) => {
+      const stillValid = prev.filter((id) => availableIds.has(id));
+      if (stillValid.length > 0) {
+        return stillValid;
+      }
+      return articles
+        .slice(0, Math.min(3, articles.length))
+        .map((article) => article.id);
+    });
+  }, [articles]);
+
+  const activeArticleIds = useMemo(
+    () => selectedArticles.filter((id) => Boolean(articleMap[id])),
+    [articleMap, selectedArticles]
   );
 
   const toggleArticle = (articleId: string) => {
@@ -206,9 +635,14 @@ const ScenarioAnalysis = () => {
         return prev;
       }
 
+      const article = articleMap[articleId];
+      if (!article) {
+        return prev;
+      }
+
       return {
         ...prev,
-        [articleId]: createInputsFromArticle(articleMap[articleId]),
+        [articleId]: createInputsFromArticle(article),
       };
     });
   };
@@ -229,7 +663,7 @@ const ScenarioAnalysis = () => {
   };
 
   const articleResults = useMemo<ArticleResult[]>(() => {
-    return selectedArticles
+    return activeArticleIds
       .map((articleId) => {
         const article = articleMap[articleId];
         if (!article) {
@@ -267,7 +701,7 @@ const ScenarioAnalysis = () => {
         } satisfies ArticleResult;
       })
       .filter((result): result is ArticleResult => result !== null);
-  }, [articleInputs, articleMap, selectedArticles]);
+  }, [activeArticleIds, articleInputs, articleMap]);
 
   const resultByArticleId = useMemo(
     () =>
@@ -325,7 +759,7 @@ const ScenarioAnalysis = () => {
   }, [articleResults]);
 
   const articlesByGroup = useMemo(() => {
-    return defaultArticles.reduce<Record<string, Article[]>>((acc, article) => {
+    return articles.reduce<Record<string, Article[]>>((acc, article) => {
       if (!acc[article.group]) {
         acc[article.group] = [];
       }
@@ -333,7 +767,7 @@ const ScenarioAnalysis = () => {
       acc[article.group].push(article);
       return acc;
     }, {});
-  }, []);
+  }, [articles]);
 
   const renderInput = (
     articleId: string,
@@ -351,6 +785,12 @@ const ScenarioAnalysis = () => {
       className="matrix-input"
     />
   );
+
+  const loadErrorSuffix = loadError
+    ? loadError.trim().endsWith('.')
+      ? ' '
+      : '. '
+    : '';
 
   return (
     <div className="scenario-page">
@@ -371,13 +811,26 @@ const ScenarioAnalysis = () => {
             Warenwirtschaft und können pro Artikel überschrieben werden.
           </p>
         </div>
+        {(isLoading || loadError) && (
+          <div className="status-hints" role="status">
+            {isLoading && <p className="status-hint">Aktualisiere Artikeldaten …</p>}
+            {loadError && (
+              <p className="status-hint status-hint--error">
+                {loadError}
+                {loadErrorSuffix}
+                Es werden lokale Referenzdaten angezeigt.
+              </p>
+            )}
+          </div>
+        )}
         <div className="article-selector">
-          {Object.entries(articlesByGroup).map(([groupName, articles]) => (
+          {Object.entries(articlesByGroup).map(([groupName, groupArticles]) => (
             <fieldset key={groupName} className="article-group">
               <legend>{groupName}</legend>
-              {articles.map((article) => {
+              {groupArticles.map((article) => {
                 const isSelected = selectedArticles.includes(article.id);
-                const purchasePrice = articleInputs[article.id]?.purchasePrice ?? article.lastPurchasePrice;
+                const purchasePrice =
+                  articleInputs[article.id]?.purchasePrice ?? article.lastPurchasePrice;
                 return (
                   <label key={article.id} className={isSelected ? "selected" : undefined}>
                     <span className="article-name">{article.name}</span>
@@ -400,7 +853,7 @@ const ScenarioAnalysis = () => {
         </div>
       </section>
 
-      {selectedArticles.length === 0 ? (
+      {activeArticleIds.length === 0 ? (
         <div className="empty-state">
           <p>
             Bitte wähle mindestens einen Artikel aus, um die Kalkulation zu
@@ -422,7 +875,7 @@ const ScenarioAnalysis = () => {
                 <thead>
                   <tr>
                     <th>Position</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <th key={articleId}>
                         <div className="matrix-header">
                           <span className="title">{articleMap[articleId].name}</span>
@@ -435,19 +888,19 @@ const ScenarioAnalysis = () => {
                 <tbody>
                   <tr>
                     <th>Verkaufspreis (netto)</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "salesPrice")}</td>
                     ))}
                   </tr>
                   <tr>
-                    <th>Rabatte / Abschläge</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Nachlass je Einheit</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "discountPerUnit")}</td>
                     ))}
                   </tr>
                   <tr>
                     <th>Netto-Verkaufspreis</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(resultByArticleId[articleId]?.netPricePerUnit ?? 0)}
@@ -456,38 +909,38 @@ const ScenarioAnalysis = () => {
                     ))}
                   </tr>
                   <tr>
-                    <th>Letzter EK-Preis</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Einkaufspreis (netto)</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "purchasePrice")}</td>
                     ))}
                   </tr>
                   <tr>
-                    <th>Logistik &amp; Handling</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Logistikkosten</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "logisticsCost")}</td>
                     ))}
                   </tr>
                   <tr>
-                    <th>Verpackung &amp; Gebühren</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Verpackung</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "packagingCost")}</td>
                     ))}
                   </tr>
                   <tr>
-                    <th>Marketingkosten</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Marketing</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "marketingCost")}</td>
                     ))}
                   </tr>
                   <tr>
-                    <th>Weitere variable Kosten</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Sonstige variable Kosten</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "otherVariableCost")}</td>
                     ))}
                   </tr>
                   <tr>
                     <th>Variable Kosten gesamt</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(
@@ -498,26 +951,14 @@ const ScenarioAnalysis = () => {
                     ))}
                   </tr>
                   <tr>
-                    <th>Deckungsbeitrag / Stück</th>
-                    {selectedArticles.map((articleId) => (
-                      <td key={articleId}>
-                        <span className="matrix-value">
-                          {formatCurrency(
-                            resultByArticleId[articleId]?.contributionPerUnit ?? 0
-                          )}
-                        </span>
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th>Absatz / Monat (Stück)</th>
-                    {selectedArticles.map((articleId) => (
+                    <th>Absatz / Monat</th>
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "volume", 1, 0)}</td>
                     ))}
                   </tr>
                   <tr>
                     <th>Netto-Umsatz / Monat</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(resultByArticleId[articleId]?.revenue ?? 0)}
@@ -527,7 +968,7 @@ const ScenarioAnalysis = () => {
                   </tr>
                   <tr>
                     <th>Variable Kosten / Monat</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(resultByArticleId[articleId]?.variableCost ?? 0)}
@@ -537,7 +978,7 @@ const ScenarioAnalysis = () => {
                   </tr>
                   <tr>
                     <th>Deckungsbeitrag / Monat</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(resultByArticleId[articleId]?.contribution ?? 0)}
@@ -547,13 +988,13 @@ const ScenarioAnalysis = () => {
                   </tr>
                   <tr>
                     <th>Fixkostenanteil / Monat</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>{renderInput(articleId, "fixedCost", 10)}</td>
                     ))}
                   </tr>
                   <tr>
                     <th>Ergebnis / Monat</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatCurrency(resultByArticleId[articleId]?.profit ?? 0)}
@@ -563,7 +1004,7 @@ const ScenarioAnalysis = () => {
                   </tr>
                   <tr>
                     <th>DB-Marge %</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatPercent(resultByArticleId[articleId]?.marginPct ?? null)}
@@ -573,7 +1014,7 @@ const ScenarioAnalysis = () => {
                   </tr>
                   <tr>
                     <th>Profitabilität %</th>
-                    {selectedArticles.map((articleId) => (
+                    {activeArticleIds.map((articleId) => (
                       <td key={articleId}>
                         <span className="matrix-value">
                           {formatPercent(
@@ -710,3 +1151,4 @@ const ScenarioAnalysis = () => {
 };
 
 export default ScenarioAnalysis;
+
