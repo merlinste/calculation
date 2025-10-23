@@ -7,6 +7,7 @@ import Products from "./pages/Products";
 import Suppliers from "./pages/Suppliers";
 import ImportWizard from "./pages/ImportWizard";
 import PriceChart from "./pages/PriceChart";
+import ScenarioAnalysis from "./pages/ScenarioAnalysis";
 import DBTable from "./pages/DBTable";
 import ManualInvoice from "./pages/ManualInvoice";
 import "./styles.css";
@@ -23,6 +24,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="import" element={<ImportWizard />} />
           <Route path="invoice" element={<ManualInvoice />} />
           <Route path="prices" element={<PriceChart />} />
+          <Route path="scenarios" element={<ScenarioAnalysis />} />
           <Route path="db" element={<DBTable />} />
         </Route>
       </Routes>
