@@ -1,3 +1,5 @@
+import { supabase } from "./supabase";
+
 export type PricePointLike = {
   date_effective: string;
   price_per_base_unit_net: number;
@@ -90,4 +92,69 @@ export const correctPriceOutliers = <T extends PricePointLike>(
   });
 
   return corrected;
+};
+
+export type PriceHistoryCorrectionResult = {
+  id: number;
+  product_id: number;
+  date_effective: string;
+  uom: string | null;
+  qty_in_base_units: number | null;
+  source_item_id: number | null;
+  previous_price_per_base_unit_net: number;
+  price_per_base_unit_net: number;
+  invoice_id: number | null;
+  invoice_no: string | null;
+  invoice_date: string | null;
+  did_update: boolean;
+};
+
+export const applyPriceHistoryCorrection = async ({
+  historyId,
+  correctedPrice,
+}: {
+  historyId: number;
+  correctedPrice: number;
+}): Promise<PriceHistoryCorrectionResult> => {
+  if (!Number.isFinite(historyId) || historyId <= 0) {
+    throw new Error("Ungültige History-ID.");
+  }
+  if (!Number.isFinite(correctedPrice)) {
+    throw new Error("Ungültiger Preiswert.");
+  }
+
+  const normalizedHistoryId = Math.trunc(historyId);
+  if (normalizedHistoryId <= 0) {
+    throw new Error("Ungültige History-ID.");
+  }
+
+  const roundedPrice = Number(correctedPrice.toFixed(4));
+
+  const { data, error } = await supabase.functions.invoke("prices-product-history", {
+    body: {
+      correction: {
+        history_id: normalizedHistoryId,
+        price_per_base_unit_net: roundedPrice,
+      },
+    },
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new Error("Konnte Antwort nicht verarbeiten.");
+  }
+
+  const updated = (data as { updated?: PriceHistoryCorrectionResult }).updated;
+  if (!updated) {
+    throw new Error("Korrektur konnte nicht gespeichert werden.");
+  }
+
+  return {
+    ...updated,
+    previous_price_per_base_unit_net: Number(updated.previous_price_per_base_unit_net),
+    price_per_base_unit_net: Number(updated.price_per_base_unit_net),
+  };
 };
