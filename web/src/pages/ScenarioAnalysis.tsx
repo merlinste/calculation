@@ -13,6 +13,8 @@ type Article = {
   paymentCost: number;
   shippingCost: number;
   fixedCostShare: number;
+  channelFeePerUnit?: number;
+  listingFeePerUnit?: number;
 };
 
 type ArticleInput = {
@@ -41,6 +43,33 @@ type ArticleResult = {
   profitMarginPct: number | null;
 };
 
+type ContributionTemplateId = "LEH" | "B2C" | "B2B";
+
+type MatrixRowInput = {
+  type: "input";
+  label: string;
+  field: keyof ArticleInput;
+  step?: number;
+  min?: number;
+};
+
+type MatrixRowComputed = {
+  type: "computed";
+  label: string;
+  format: "currency" | "percent" | "number";
+  getValue: (result: ArticleResult | undefined) => number | null;
+};
+
+type MatrixRow = MatrixRowInput | MatrixRowComputed;
+
+type ContributionTemplate = {
+  id: ContributionTemplateId;
+  label: string;
+  description: string;
+  variableCostFields: (keyof ArticleInput)[];
+  rows: MatrixRow[];
+};
+
 const currencyFormatter = new Intl.NumberFormat("de-DE", {
   style: "currency",
   currency: "EUR",
@@ -63,6 +92,24 @@ const formatPercent = (value: number | null) =>
     : `${percentFormatter.format(value)} %`;
 const formatInteger = (value: number) => numberFormatter.format(value);
 
+const formatMatrixValue = (
+  format: MatrixRowComputed["format"],
+  value: number | null
+) => {
+  switch (format) {
+    case "currency":
+      return formatCurrency(value ?? 0);
+    case "percent":
+      return formatPercent(value);
+    case "number":
+      return value === null || Number.isNaN(value)
+        ? "–"
+        : formatInteger(value);
+    default:
+      return "";
+  }
+};
+
 const withBaseUrl = (path: string) => {
   const baseUrl = import.meta.env.BASE_URL ?? "/";
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
@@ -71,6 +118,257 @@ const withBaseUrl = (path: string) => {
 
 const PRODUCTS_URL = withBaseUrl("data/products.json");
 const PRICES_URL = withBaseUrl("data/prices.json");
+
+const contributionTemplates: Record<ContributionTemplateId, ContributionTemplate> = {
+  B2C: {
+    id: "B2C",
+    label: "B2C",
+    description:
+      "Direktvertrieb mit Verpackung, Marketing und sonstigen variablen Kosten.",
+    variableCostFields: [
+      "purchasePrice",
+      "logisticsCost",
+      "packagingCost",
+      "marketingCost",
+      "otherVariableCost",
+    ],
+    rows: [
+      { type: "input", label: "Verkaufspreis (netto)", field: "salesPrice" },
+      { type: "input", label: "Nachlass je Einheit", field: "discountPerUnit" },
+      {
+        type: "computed",
+        label: "Netto-Verkaufspreis",
+        format: "currency",
+        getValue: (result) => result?.netPricePerUnit ?? null,
+      },
+      { type: "input", label: "Einkaufspreis (netto)", field: "purchasePrice" },
+      { type: "input", label: "Logistikkosten", field: "logisticsCost" },
+      { type: "input", label: "Verpackung", field: "packagingCost" },
+      { type: "input", label: "Marketing", field: "marketingCost" },
+      {
+        type: "input",
+        label: "Sonstige variable Kosten",
+        field: "otherVariableCost",
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten gesamt",
+        format: "currency",
+        getValue: (result) => result?.variableCostPerUnit ?? null,
+      },
+      { type: "input", label: "Absatz / Monat", field: "volume", step: 1, min: 0 },
+      {
+        type: "computed",
+        label: "Netto-Umsatz / Monat",
+        format: "currency",
+        getValue: (result) => result?.revenue ?? null,
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten / Monat",
+        format: "currency",
+        getValue: (result) => result?.variableCost ?? null,
+      },
+      {
+        type: "computed",
+        label: "Deckungsbeitrag / Monat",
+        format: "currency",
+        getValue: (result) => result?.contribution ?? null,
+      },
+      { type: "input", label: "Fixkostenanteil / Monat", field: "fixedCost", step: 10 },
+      {
+        type: "computed",
+        label: "Ergebnis / Monat",
+        format: "currency",
+        getValue: (result) => result?.profit ?? null,
+      },
+      {
+        type: "computed",
+        label: "DB-Marge %",
+        format: "percent",
+        getValue: (result) => result?.marginPct ?? null,
+      },
+      {
+        type: "computed",
+        label: "Profitabilität %",
+        format: "percent",
+        getValue: (result) => result?.profitMarginPct ?? null,
+      },
+    ],
+  },
+  B2B: {
+    id: "B2B",
+    label: "B2B",
+    description:
+      "Großhandel mit Vertriebspauschalen und Channel-Gebühren je Einheit.",
+    variableCostFields: [
+      "purchasePrice",
+      "logisticsCost",
+      "channelFeePerUnit",
+      "otherVariableCost",
+    ],
+    rows: [
+      { type: "input", label: "Verkaufspreis (netto)", field: "salesPrice" },
+      {
+        type: "input",
+        label: "Händlerrabatt je Einheit",
+        field: "discountPerUnit",
+      },
+      {
+        type: "computed",
+        label: "Netto-Verkaufspreis",
+        format: "currency",
+        getValue: (result) => result?.netPricePerUnit ?? null,
+      },
+      { type: "input", label: "Einkaufspreis (netto)", field: "purchasePrice" },
+      { type: "input", label: "Lieferkosten", field: "logisticsCost" },
+      {
+        type: "input",
+        label: "Channel-Gebühr je Einheit",
+        field: "channelFeePerUnit",
+      },
+      {
+        type: "input",
+        label: "Provisionen / Service",
+        field: "otherVariableCost",
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten gesamt",
+        format: "currency",
+        getValue: (result) => result?.variableCostPerUnit ?? null,
+      },
+      { type: "input", label: "Absatz / Monat", field: "volume", step: 1, min: 0 },
+      {
+        type: "computed",
+        label: "Netto-Umsatz / Monat",
+        format: "currency",
+        getValue: (result) => result?.revenue ?? null,
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten / Monat",
+        format: "currency",
+        getValue: (result) => result?.variableCost ?? null,
+      },
+      {
+        type: "computed",
+        label: "Deckungsbeitrag / Monat",
+        format: "currency",
+        getValue: (result) => result?.contribution ?? null,
+      },
+      { type: "input", label: "Fixkostenanteil / Monat", field: "fixedCost", step: 10 },
+      {
+        type: "computed",
+        label: "Ergebnis / Monat",
+        format: "currency",
+        getValue: (result) => result?.profit ?? null,
+      },
+      {
+        type: "computed",
+        label: "DB-Marge %",
+        format: "percent",
+        getValue: (result) => result?.marginPct ?? null,
+      },
+      {
+        type: "computed",
+        label: "Profitabilität %",
+        format: "percent",
+        getValue: (result) => result?.profitMarginPct ?? null,
+      },
+    ],
+  },
+  LEH: {
+    id: "LEH",
+    label: "LEH",
+    description:
+      "Lebensmitteleinzelhandel mit Listungsgebühren und Werbekostenzuschuss.",
+    variableCostFields: [
+      "purchasePrice",
+      "listingFeePerUnit",
+      "logisticsCost",
+      "packagingCost",
+      "marketingCost",
+      "otherVariableCost",
+    ],
+    rows: [
+      { type: "input", label: "Verkaufspreis (netto)", field: "salesPrice" },
+      {
+        type: "input",
+        label: "Handelsnachlass je Einheit",
+        field: "discountPerUnit",
+      },
+      {
+        type: "computed",
+        label: "Netto-Verkaufspreis",
+        format: "currency",
+        getValue: (result) => result?.netPricePerUnit ?? null,
+      },
+      { type: "input", label: "Einkaufspreis (netto)", field: "purchasePrice" },
+      {
+        type: "input",
+        label: "Listungsgebühr je Einheit",
+        field: "listingFeePerUnit",
+      },
+      { type: "input", label: "Distribution / Logistik", field: "logisticsCost" },
+      { type: "input", label: "Regal & Verpackung", field: "packagingCost" },
+      {
+        type: "input",
+        label: "Werbekostenzuschuss",
+        field: "marketingCost",
+      },
+      {
+        type: "input",
+        label: "Retouren & Sonstige",
+        field: "otherVariableCost",
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten gesamt",
+        format: "currency",
+        getValue: (result) => result?.variableCostPerUnit ?? null,
+      },
+      { type: "input", label: "Absatz / Monat", field: "volume", step: 1, min: 0 },
+      {
+        type: "computed",
+        label: "Netto-Umsatz / Monat",
+        format: "currency",
+        getValue: (result) => result?.revenue ?? null,
+      },
+      {
+        type: "computed",
+        label: "Variable Kosten / Monat",
+        format: "currency",
+        getValue: (result) => result?.variableCost ?? null,
+      },
+      {
+        type: "computed",
+        label: "Deckungsbeitrag / Monat",
+        format: "currency",
+        getValue: (result) => result?.contribution ?? null,
+      },
+      { type: "input", label: "Fixkostenanteil / Monat", field: "fixedCost", step: 10 },
+      {
+        type: "computed",
+        label: "Ergebnis / Monat",
+        format: "currency",
+        getValue: (result) => result?.profit ?? null,
+      },
+      {
+        type: "computed",
+        label: "DB-Marge %",
+        format: "percent",
+        getValue: (result) => result?.marginPct ?? null,
+      },
+      {
+        type: "computed",
+        label: "Profitabilität %",
+        format: "percent",
+        getValue: (result) => result?.profitMarginPct ?? null,
+      },
+    ],
+  },
+};
 
 const fallbackArticles: Article[] = [
   {
@@ -313,6 +611,10 @@ const ScenarioAnalysis = () => {
       return acc;
     }, {})
   );
+  const [selectedTemplateId, setSelectedTemplateId] =
+    useState<ContributionTemplateId>("B2C");
+
+  const activeTemplate = contributionTemplates[selectedTemplateId];
 
   useEffect(() => {
     let isCancelled = false;
@@ -627,7 +929,10 @@ const ScenarioAnalysis = () => {
     setArticleInputs((prev) => {
       const next: Record<string, ArticleInput> = {};
       for (const article of articles) {
-        next[article.id] = prev[article.id] ?? createInputsFromArticle(article);
+        const defaults = createInputsFromArticle(article);
+        next[article.id] = prev[article.id]
+          ? { ...defaults, ...prev[article.id] }
+          : defaults;
       }
       return next;
     });
@@ -728,7 +1033,7 @@ const ScenarioAnalysis = () => {
         } satisfies ArticleResult;
       })
       .filter((result): result is ArticleResult => result !== null);
-  }, [activeArticleIds, articleInputs, articleMap]);
+  }, [activeArticleIds, activeTemplate, articleInputs, articleMap]);
 
   const resultByArticleId = useMemo(
     () =>
