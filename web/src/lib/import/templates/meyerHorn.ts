@@ -14,7 +14,10 @@ import type {
   ParserFeedbackEntry,
 } from "../types";
 
-const VERSION = "2025-03-05";
+const VERSION = "2025-03-06";
+
+const GAS_STORAGE_DESCRIPTION = "Gasspeicher- / RML Bilanzierungsumlage";
+const GAS_STORAGE_UNIT_PRICE = 0.0039;
 
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
@@ -456,6 +459,85 @@ function adjustSpecialSurcharges(items: InvoiceLineDraft[]): {
   };
 }
 
+function ensureGasStorageSurcharge(items: InvoiceLineDraft[]): {
+  items: InvoiceLineDraft[];
+  warnings: string[];
+} {
+  if (!items.length) {
+    return { items, warnings: [] };
+  }
+
+  const warnings: string[] = [];
+
+  const isGasStorageLine = (item: InvoiceLineDraft) => {
+    if (!item.product_name) return false;
+    const normalised = item.product_name
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+    if (!normalised.includes("gasspeicher")) return false;
+    if (!normalised.includes("bilanzierungsumlage")) return false;
+    return true;
+  };
+
+  const referenceIndex = (() => {
+    for (let idx = items.length - 1; idx >= 0; idx -= 1) {
+      if (!isGasStorageLine(items[idx])) {
+        return idx;
+      }
+    }
+    return -1;
+  })();
+
+  const referenceItem = referenceIndex >= 0 ? items[referenceIndex] : null;
+
+  let qty = referenceItem && referenceItem.uom === "KG" ? referenceItem.qty : 0;
+
+  if (!referenceItem) {
+    warnings.push("Keine Referenzposition für Gasspeicher-Umlage gefunden – bitte prüfen.");
+  } else if (referenceItem.uom !== "KG") {
+    warnings.push("Vorherige Position ohne Kilogramm-Angabe für Gasspeicher-Umlage – bitte prüfen.");
+  }
+
+  const qtyRounded = Number(qty.toFixed(3));
+  const unitPrice = GAS_STORAGE_UNIT_PRICE;
+  const lineTotal = Number((qtyRounded * unitPrice).toFixed(4));
+
+  const existingGasLine = items.find(isGasStorageLine);
+  const newLineNo = existingGasLine
+    ? existingGasLine.line_no
+    : items.reduce((max, item) => Math.max(max, item.line_no), 0) + 1;
+
+  const issues: string[] = [];
+  if (qtyRounded <= 0) {
+    issues.push("Kilomenge der Referenzposition fehlt");
+    warnings.push("Gasspeicher-Umlage ohne Kilogramm-Basis – bitte prüfen.");
+  }
+
+  const gasLine: InvoiceLineDraft = {
+    line_no: newLineNo,
+    line_type: "surcharge",
+    product_name: GAS_STORAGE_DESCRIPTION,
+    qty: qtyRounded,
+    uom: "KG",
+    unit_price_net: unitPrice,
+    tax_rate_percent: defaultTaxRate("surcharge"),
+    line_total_net: lineTotal,
+    confidence: qtyRounded > 0 ? 0.94 : 0.6,
+    issues,
+    source: {
+      template_hint: "auto-gas-storage-surcharge",
+    },
+  };
+
+  const preserved = items.filter((item) => !isGasStorageLine(item));
+
+  return {
+    items: [...preserved, gasLine],
+    warnings,
+  };
+}
+
 function normaliseDescription(value: string | undefined | null): string {
   if (!value) return "";
   return value
@@ -707,7 +789,8 @@ export function parseMeyerHornTemplate(
   const table = extractTable(lines);
   const baseItems = collect(table);
   const { items: surchargeAdjusted, warnings: surchargeWarnings } = adjustSpecialSurcharges(baseItems);
-  const { items, warnings: feedbackWarnings } = applyFeedback(surchargeAdjusted, feedback);
+  const { items: withGasSurcharge, warnings: gasWarnings } = ensureGasStorageSurcharge(surchargeAdjusted);
+  const { items, warnings: feedbackWarnings } = applyFeedback(withGasSurcharge, feedback);
   const meta = parseMeta(text);
 
   const warnings = items.length === 0 ? ["Keine Positionen erkannt"] : [];
@@ -728,7 +811,7 @@ export function parseMeyerHornTemplate(
       template: "Meyer & Horn PDF",
       version: VERSION,
       usedOcr: false,
-      warnings: mergeWarnings(feedbackWarnings, surchargeWarnings),
+      warnings: mergeWarnings(feedbackWarnings, surchargeWarnings, gasWarnings),
     },
     meta,
     warnings,
