@@ -10,6 +10,7 @@ import PriceChart from "./pages/PriceChart";
 import ScenarioAnalysis from "./pages/ScenarioAnalysis";
 import DBTable from "./pages/DBTable";
 import ManualInvoice from "./pages/ManualInvoice";
+import Productions from "./pages/Productions";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="prices" element={<PriceChart />} />
           <Route path="scenarios" element={<ScenarioAnalysis />} />
           <Route path="db" element={<DBTable />} />
+          <Route path="productions" element={<Productions />} />
         </Route>
       </Routes>
     </BrowserRouter>

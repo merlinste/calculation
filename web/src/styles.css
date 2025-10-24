@@ -365,6 +365,18 @@ textarea:disabled {
   gap: 16px;
 }
 
+.input-like {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: var(--surface-muted);
+  color: var(--text);
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+}
+
 .import-grid {
   align-items: end;
 }
