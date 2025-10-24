@@ -21,18 +21,32 @@ const samples = [
     file: "meyer_horn_surcharge_percentage.txt",
     description: "Spezial-Zuschlag mit Prozentspalte",
     assert(draft: ReturnType<typeof parseMeyerHornTemplate>) {
-      const surcharge = draft.items.find((item) =>
-        item.source?.raw?.includes("Gasspeicher- / RML Bilanzierungsumlage"),
-      );
-      assert.ok(surcharge, "Gasspeicher-Zuschlag wurde nicht erkannt");
-      assert.equal(surcharge?.line_type, "surcharge", "Zeile nicht als Zuschlag markiert");
-      assert.equal(surcharge?.uom, "KG", "Mengeneinheit sollte auf KG normalisiert werden");
-      assert.equal(surcharge?.qty, 42.5, "Kilomenge sollte aus Produktpositionen übernommen werden");
-      const expectedUnitPrice = Number((5.1 / 42.5).toFixed(4));
+      const lastItem = draft.items[draft.items.length - 1];
+      assert.ok(lastItem, "Letzte Position fehlt");
       assert.equal(
-        surcharge?.unit_price_net,
-        expectedUnitPrice,
-        "Zuschlag sollte korrekt auf Kilopreis verteilt werden",
+        lastItem?.product_name,
+        "Gasspeicher- / RML Bilanzierungsumlage",
+        "Letzte Position sollte Gasspeicher-Umlage sein",
+      );
+      const gasPositions = draft.items.filter((item) =>
+        item.product_name?.toLowerCase().includes("gasspeicher"),
+      );
+      assert.equal(gasPositions.length, 1, "Gasspeicher-Umlage sollte nur einmal vorhanden sein");
+      const reference = draft.items[draft.items.length - 2];
+      assert.ok(reference, "Referenzposition für Gasspeicher-Umlage fehlt");
+      assert.equal(
+        lastItem?.qty,
+        reference?.qty,
+        "Gasspeicher-Umlage sollte Kilomenge der Vorposition übernehmen",
+      );
+      assert.equal(lastItem?.line_type, "surcharge", "Zeile nicht als Zuschlag markiert");
+      assert.equal(lastItem?.uom, "KG", "Mengeneinheit sollte auf KG normalisiert werden");
+      assert.equal(lastItem?.unit_price_net, 0.0039, "Einheitspreis sollte 0,0039 EUR betragen");
+      const expectedTotal = Number(((reference?.qty ?? 0) * 0.0039).toFixed(4));
+      assert.equal(
+        lastItem?.line_total_net,
+        expectedTotal,
+        "Positionswert sollte aus Menge * 0,0039 berechnet werden",
       );
     },
   },
