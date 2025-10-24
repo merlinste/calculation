@@ -18,6 +18,7 @@ const VERSION = "2025-03-06";
 
 const GAS_STORAGE_DESCRIPTION = "Gasspeicher- / RML Bilanzierungsumlage";
 const GAS_STORAGE_UNIT_PRICE = 0.0039;
+const GAS_STORAGE_SKUS = new Set(["79008"]);
 
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
 
@@ -469,16 +470,33 @@ function ensureGasStorageSurcharge(items: InvoiceLineDraft[]): {
 
   const warnings: string[] = [];
 
-  const isGasStorageLine = (item: InvoiceLineDraft) => {
-    if (!item.product_name) return false;
-    const normalised = item.product_name
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase();
+  const matchesGasStorageDescription = (value: string | undefined | null) => {
+    if (!value) return false;
+    const normalised = normaliseDescription(value);
     if (!normalised.includes("gasspeicher")) return false;
-    if (!normalised.includes("bilanzierungsumlage")) return false;
+    if (
+      !normalised.includes("bilanzierungsumlage") &&
+      !normalised.includes("bilanzierungs umlage") &&
+      !normalised.includes("rlm") &&
+      !normalised.includes("rml")
+    ) {
+      return false;
+    }
     return true;
   };
+
+  const matchesGasStorageSku = (value: string | number | undefined | null) => {
+    if (!value) return false;
+    const digits = String(value).replace(/\D+/g, "");
+    if (!digits) return false;
+    return GAS_STORAGE_SKUS.has(digits);
+  };
+
+  const isGasStorageLine = (item: InvoiceLineDraft) =>
+    matchesGasStorageDescription(item.product_name) ||
+    matchesGasStorageDescription(item.source?.raw) ||
+    matchesGasStorageSku(item.product_sku) ||
+    matchesGasStorageSku(item.product_id);
 
   const referenceIndex = (() => {
     for (let idx = items.length - 1; idx >= 0; idx -= 1) {
