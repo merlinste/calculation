@@ -28,6 +28,10 @@ const samples = [
         "Gasspeicher- / RML Bilanzierungsumlage",
         "Letzte Position sollte Gasspeicher-Umlage sein",
       );
+      const gasPositions = draft.items.filter((item) =>
+        item.product_name?.toLowerCase().includes("gasspeicher"),
+      );
+      assert.equal(gasPositions.length, 1, "Gasspeicher-Umlage sollte nur einmal vorhanden sein");
       const reference = draft.items[draft.items.length - 2];
       assert.ok(reference, "Referenzposition für Gasspeicher-Umlage fehlt");
       assert.equal(

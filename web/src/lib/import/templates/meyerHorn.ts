@@ -17,7 +17,6 @@ import type {
 const VERSION = "2025-03-06";
 
 const GAS_STORAGE_DESCRIPTION = "Gasspeicher- / RML Bilanzierungsumlage";
-const GAS_STORAGE_DESCRIPTION_LOWER = GAS_STORAGE_DESCRIPTION.toLowerCase();
 const GAS_STORAGE_UNIT_PRICE = 0.0039;
 
 const SPECIAL_SURCHARGE_POSITIONS = new Set([79007, 79107]);
@@ -470,8 +469,16 @@ function ensureGasStorageSurcharge(items: InvoiceLineDraft[]): {
 
   const warnings: string[] = [];
 
-  const isGasStorageLine = (item: InvoiceLineDraft) =>
-    item.product_name?.toLowerCase().includes(GAS_STORAGE_DESCRIPTION_LOWER) ?? false;
+  const isGasStorageLine = (item: InvoiceLineDraft) => {
+    if (!item.product_name) return false;
+    const normalised = item.product_name
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase();
+    if (!normalised.includes("gasspeicher")) return false;
+    if (!normalised.includes("bilanzierungsumlage")) return false;
+    return true;
+  };
 
   const referenceIndex = (() => {
     for (let idx = items.length - 1; idx >= 0; idx -= 1) {
