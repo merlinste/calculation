@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { FunctionsFetchError } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
@@ -88,6 +88,16 @@ type SparklineProps = {
 };
 
 function Sparkline({ data }: SparklineProps) {
+  const idBase = useId();
+  const ids = useMemo(
+    () => ({
+      lineGradientId: `${idBase}-sparkline-line`,
+      areaGradientId: `${idBase}-sparkline-area`,
+      glowId: `${idBase}-sparkline-glow`,
+    }),
+    [idBase],
+  );
+
   const chartData = useMemo(() => {
     if (!data?.length) return null;
     const width = 160;
@@ -130,16 +140,34 @@ function Sparkline({ data }: SparklineProps) {
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
     >
-      <polygon points={areaPoints} fill="rgba(37, 99, 235, 0.12)" />
+      <defs>
+        <linearGradient id={ids.lineGradientId} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="rgba(37, 99, 235, 0.7)" />
+          <stop offset="100%" stopColor="rgb(37, 99, 235)" />
+        </linearGradient>
+        <linearGradient id={ids.areaGradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(37, 99, 235, 0.24)" />
+          <stop offset="100%" stopColor="rgba(37, 99, 235, 0)" />
+        </linearGradient>
+        <filter id={ids.glowId} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <polygon points={areaPoints} fill={`url(#${ids.areaGradientId})`} />
       <polyline
         points={points}
         fill="none"
-        stroke="rgb(37, 99, 235)"
+        stroke={`url(#${ids.lineGradientId})`}
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
+        filter={`url(#${ids.glowId})`}
       />
-      <circle cx={lastX} cy={lastY} r={3} fill="rgb(37, 99, 235)" />
+      <circle cx={lastX} cy={lastY} r={4} fill="rgb(37, 99, 235)" stroke="white" strokeWidth={1.5} />
     </svg>
   );
 }
@@ -149,6 +177,17 @@ type HistoryChartProps = {
 };
 
 function HistoryChart({ data }: HistoryChartProps) {
+  const idBase = useId();
+  const ids = useMemo(
+    () => ({
+      lineGradientId: `${idBase}-history-line`,
+      areaGradientId: `${idBase}-history-area`,
+      glowId: `${idBase}-history-glow`,
+      labelShadowId: `${idBase}-history-label-shadow`,
+    }),
+    [idBase],
+  );
+
   const chartData = useMemo(() => {
     if (!data?.length) return null;
 
@@ -234,13 +273,34 @@ function HistoryChart({ data }: HistoryChartProps) {
       xTicks,
       baseline,
       points,
+      lastValue: data[data.length - 1].price_per_base_unit_net,
     };
   }, [data]);
 
   if (!chartData) return null;
 
-  const { width, height, paddingX, paddingY, linePath, areaPath, yTicks, xTicks, baseline, points } =
-    chartData;
+  const {
+    width,
+    height,
+    paddingX,
+    paddingY,
+    linePath,
+    areaPath,
+    yTicks,
+    xTicks,
+    baseline,
+    points,
+    lastValue,
+  } = chartData;
+
+  const lastPoint = points[points.length - 1];
+  const lastValueLabel = formatCurrency(lastValue);
+  const labelWidth = Math.max(96, lastValueLabel.length * 7.2);
+  const labelHalfWidth = labelWidth / 2;
+  const labelX = lastPoint
+    ? Math.min(Math.max(lastPoint.x, paddingX + labelHalfWidth), width - paddingX - labelHalfWidth)
+    : 0;
+  const labelOffsetX = lastPoint ? labelX - lastPoint.x : 0;
 
   return (
     <svg
@@ -250,18 +310,46 @@ function HistoryChart({ data }: HistoryChartProps) {
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
     >
+      <defs>
+        <linearGradient id={ids.lineGradientId} x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="rgba(37, 99, 235, 0.75)" />
+          <stop offset="100%" stopColor="rgb(37, 99, 235)" />
+        </linearGradient>
+        <linearGradient id={ids.areaGradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgba(37, 99, 235, 0.26)" />
+          <stop offset="85%" stopColor="rgba(37, 99, 235, 0.08)" />
+          <stop offset="100%" stopColor="rgba(37, 99, 235, 0)" />
+        </linearGradient>
+        <filter id={ids.glowId} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur" />
+          <feMerge>
+            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <filter id={ids.labelShadowId} x="-50%" y="-50%" width="200%" height="200%">
+          <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="rgba(15, 23, 42, 0.3)" />
+        </filter>
+      </defs>
       <rect
         x={paddingX}
         y={paddingY}
         width={width - paddingX * 2}
         height={height - paddingY * 2}
-        fill="rgba(37, 99, 235, 0.06)"
+        fill="rgba(248, 250, 252, 0.8)"
         stroke="rgba(37, 99, 235, 0.2)"
         strokeWidth={1}
         rx={16}
       />
-      <path d={areaPath} fill="rgba(37, 99, 235, 0.14)" stroke="none" />
-      <path d={linePath} fill="none" stroke="rgb(37, 99, 235)" strokeWidth={3} strokeLinecap="round" />
+      <path d={areaPath} fill={`url(#${ids.areaGradientId})`} stroke="none" />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={`url(#${ids.lineGradientId})`}
+        strokeWidth={3.2}
+        strokeLinecap="round"
+        filter={`url(#${ids.glowId})`}
+      />
       {yTicks.map((tick, index) => (
         <g key={`y-${index}`}>
           <line
@@ -307,6 +395,33 @@ function HistoryChart({ data }: HistoryChartProps) {
       {points.map((point, index) => (
         <circle key={`point-${index}`} cx={point.x} cy={point.y} r={index === points.length - 1 ? 4 : 2.5} fill="rgb(37, 99, 235)" opacity={index === points.length - 1 ? 1 : 0.5} />
       ))}
+      {lastPoint ? (
+        <g transform={`translate(${lastPoint.x}, ${lastPoint.y})`}>
+          <circle r={6} fill="white" stroke="rgba(37, 99, 235, 0.4)" strokeWidth={1.5} />
+          <circle r={4} fill="rgb(37, 99, 235)" />
+          <g transform={`translate(${labelOffsetX}, -16)`}>
+            <rect
+              x={-labelHalfWidth}
+              y={-28}
+              width={labelWidth}
+              height={28}
+              rx={12}
+              fill="rgba(15, 23, 42, 0.84)"
+              filter={`url(#${ids.labelShadowId})`}
+            />
+            <text
+              x={0}
+              y={-10}
+              textAnchor="middle"
+              fill="white"
+              fontSize={12}
+              fontWeight={600}
+            >
+              {lastValueLabel}
+            </text>
+          </g>
+        </g>
+      ) : null}
     </svg>
   );
 }
