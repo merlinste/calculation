@@ -405,16 +405,6 @@ function HistoryChart({ series }: HistoryChartProps) {
   const hoveredLabelOffsetX = hoveredPoint ? hoveredLabelX - hoveredPoint.x : 0;
 
   const singleSeries = seriesData.length === 1 ? seriesData[0] : null;
-  const lastValueLabel = singleSeries ? formatCurrency(singleSeries.lastValue) : null;
-  const labelWidth = lastValueLabel ? Math.max(96, lastValueLabel.length * 7.2) : 0;
-  const labelHalfWidth = labelWidth / 2;
-  const labelX = singleSeries?.lastPoint
-    ? Math.min(
-        Math.max(singleSeries.lastPoint.x, paddingX + labelHalfWidth),
-        width - paddingX - labelHalfWidth,
-      )
-    : 0;
-  const labelOffsetX = singleSeries?.lastPoint ? labelX - singleSeries.lastPoint.x : 0;
 
   const handlePointerMove = useCallback(
     (event: MouseEvent<SVGSVGElement>) => {
@@ -657,33 +647,6 @@ function HistoryChart({ series }: HistoryChartProps) {
               </text>
             </g>
           ) : null}
-        </g>
-      ) : null}
-      {singleSeries && singleSeries.lastPoint ? (
-        <g transform={`translate(${singleSeries.lastPoint.x}, ${singleSeries.lastPoint.y})`}>
-          <circle r={6} fill="white" stroke="rgba(37, 99, 235, 0.4)" strokeWidth={1.5} />
-          <circle r={4} fill="rgb(37, 99, 235)" />
-          <g transform={`translate(${labelOffsetX}, -16)`}>
-            <rect
-              x={-labelHalfWidth}
-              y={-28}
-              width={labelWidth}
-              height={28}
-              rx={12}
-              fill="rgba(15, 23, 42, 0.84)"
-              filter={`url(#${ids.labelShadowId})`}
-            />
-            <text
-              x={0}
-              y={-10}
-              textAnchor="middle"
-              fill="white"
-              fontSize={12}
-              fontWeight={600}
-            >
-              {lastValueLabel}
-            </text>
-          </g>
         </g>
       ) : null}
       {!singleSeries &&
