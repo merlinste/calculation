@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import logo from "../assets/earlybird-logo.svg";
+import logo from "../assets/earlybird-logo.png";
 
 type Props = { onLogout: () => void };
 
