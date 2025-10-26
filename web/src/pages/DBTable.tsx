@@ -22,6 +22,7 @@ type InvoiceSummary = {
   netAmount: number;
   taxAmount: number;
   grossAmount: number;
+  updatedAt: string;
 };
 
 type EditableInvoice = {
@@ -125,6 +126,14 @@ export default function DBTable() {
     [],
   );
 
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat("de-DE", {
+        dateStyle: "medium",
+      }),
+    [],
+  );
+
   const loadMetrics = useCallback(async () => {
     const { data, error } = await supabase.from("product_dbi_current").select("*").order("product_id");
     if (error) {
@@ -141,7 +150,7 @@ export default function DBTable() {
     setInvoicesError(null);
     const { data, error } = await supabase
       .from("purchase_invoices")
-      .select("id, supplier_id, invoice_no, invoice_date, currency, net_amount, tax_amount, gross_amount, suppliers(name)")
+      .select("id, supplier_id, invoice_no, invoice_date, currency, net_amount, tax_amount, gross_amount, updated_at, suppliers(name)")
       .order("invoice_date", { ascending: false })
       .order("id", { ascending: false });
 
@@ -159,6 +168,7 @@ export default function DBTable() {
         netAmount: Number(item.net_amount) || 0,
         taxAmount: Number(item.tax_amount) || 0,
         grossAmount: Number(item.gross_amount) || 0,
+        updatedAt: (item.updated_at as string | undefined) ?? "",
       }));
       setInvoices(list);
     }
@@ -420,6 +430,45 @@ export default function DBTable() {
     return totals.reduce((sum, value) => sum + value, 0);
   }, [items]);
 
+  const activeInvoiceSummary = useMemo(
+    () =>
+      selectedInvoiceId != null
+        ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null
+        : null,
+    [invoices, selectedInvoiceId],
+  );
+
+  const activeSupplierName = activeInvoiceSummary?.supplierName ?? null;
+  const activeInvoiceUpdatedAt = activeInvoiceSummary?.updatedAt ?? null;
+  const invoiceFormDate = invoiceForm?.invoiceDate ?? null;
+
+  const invoiceDateDisplay = useMemo(() => {
+    if (!invoiceFormDate) return null;
+    const parsed = new Date(invoiceFormDate);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return dateFormatter.format(parsed);
+  }, [invoiceFormDate, dateFormatter]);
+
+  const updatedAtDisplay = useMemo(() => {
+    if (!activeInvoiceUpdatedAt) return null;
+    const parsed = new Date(activeInvoiceUpdatedAt);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return dateFormatter.format(parsed);
+  }, [activeInvoiceUpdatedAt, dateFormatter]);
+
+  const invoiceMetaLine = useMemo(() => {
+    if (!invoiceForm) return null;
+    const parts: string[] = [];
+    parts.push(activeSupplierName ?? "Unbekannter Lieferant");
+    if (invoiceForm.invoiceNo.trim()) {
+      parts.push(invoiceForm.invoiceNo.trim());
+    }
+    if (invoiceDateDisplay) {
+      parts.push(invoiceDateDisplay);
+    }
+    return parts.join(" · ");
+  }, [invoiceForm, activeSupplierName, invoiceDateDisplay]);
+
   return (
     <div className="page">
       <header className="page__header">
@@ -525,6 +574,15 @@ export default function DBTable() {
           <div className="invoice-layout__detail">
             {invoiceForm ? (
               <>
+                <header className="invoice-detail__header">
+                  <div>
+                    <h3 className="invoice-detail__title">Rechnung bearbeiten</h3>
+                    {invoiceMetaLine ? <p className="invoice-detail__meta">{invoiceMetaLine}</p> : null}
+                  </div>
+                  {updatedAtDisplay ? (
+                    <span className="invoice-detail__status">Aktualisiert am {updatedAtDisplay}</span>
+                  ) : null}
+                </header>
                 <form
                   className="invoice-form"
                   onSubmit={(event) => {
@@ -779,7 +837,7 @@ export default function DBTable() {
                 </div>
               </>
             ) : (
-              <p className="table-empty">Bitte wählen Sie eine Rechnung aus.</p>
+              <p className="invoice-detail__empty">Bitte wählen Sie eine Rechnung aus.</p>
             )}
           </div>
         </div>
