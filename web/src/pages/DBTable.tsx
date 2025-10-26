@@ -22,7 +22,6 @@ type InvoiceSummary = {
   netAmount: number;
   taxAmount: number;
   grossAmount: number;
-  updatedAt: string;
 };
 
 type EditableInvoice = {
