@@ -17,10 +17,14 @@ type PricePoint = {
 
 type EnrichedProduct = Product & {
   history: PricePoint[];
+  originalHistory: PricePoint[];
   changeValue: number | null;
   changePercent: number | null;
   firstValue: number | null;
   lastValue: number | null;
+  rangeStart: string | null;
+  rangeEnd: string | null;
+  hasHistoryOutsideRange: boolean;
 };
 
 type SortOption = "name-asc" | "name-desc" | "change-desc" | "change-asc";
@@ -40,6 +44,17 @@ const formatDate = (value: string) => {
   if (Number.isNaN(date.getTime())) return value;
   return dateFormatter.format(date);
 };
+
+const SERIES_COLORS = [
+  "rgb(37, 99, 235)",
+  "#db2777",
+  "#0ea5e9",
+  "#f97316",
+  "#16a34a",
+  "#8b5cf6",
+  "#d946ef",
+  "#14b8a6",
+];
 
 const normalizeHistory = (history: any[]): PricePoint[] => {
   const normalized = (history || [])
@@ -172,11 +187,18 @@ function Sparkline({ data }: SparklineProps) {
   );
 }
 
-type HistoryChartProps = {
+type HistoryChartSeries = {
+  id: number;
+  label: string;
+  color: string;
   data: PricePoint[];
 };
 
-function HistoryChart({ data }: HistoryChartProps) {
+type HistoryChartProps = {
+  series: HistoryChartSeries[];
+};
+
+function HistoryChart({ series }: HistoryChartProps) {
   const idBase = useId();
   const ids = useMemo(
     () => ({
@@ -189,7 +211,29 @@ function HistoryChart({ data }: HistoryChartProps) {
   );
 
   const chartData = useMemo(() => {
-    if (!data?.length) return null;
+    if (!series?.length) return null;
+
+    const normalizedSeries = series
+      .map((entry) => {
+        const normalizedData = (entry.data || [])
+          .map((point) => {
+            const timestamp = new Date(point.date_effective).getTime();
+            if (!Number.isFinite(timestamp)) return null;
+            return {
+              ...point,
+              timestamp,
+            };
+          })
+          .filter((point): point is PricePoint & { timestamp: number } => point !== null)
+          .sort((a, b) => a.timestamp - b.timestamp);
+        return {
+          ...entry,
+          data: normalizedData,
+        };
+      })
+      .filter((entry) => entry.data.length > 0);
+
+    if (!normalizedSeries.length) return null;
 
     const width = 700;
     const height = 320;
@@ -198,16 +242,22 @@ function HistoryChart({ data }: HistoryChartProps) {
     const innerWidth = width - paddingX * 2;
     const innerHeight = height - paddingY * 2;
 
-    const values = data.map((point) => point.price_per_base_unit_net);
-    const timestamps = data.map((point) => new Date(point.date_effective).getTime());
+    const values = normalizedSeries.flatMap((entry) =>
+      entry.data.map((point) => point.price_per_base_unit_net),
+    );
+    const timestamps = normalizedSeries.flatMap((entry) =>
+      entry.data.map((point) => point.timestamp),
+    );
+    if (!values.length || !timestamps.length) return null;
+
     let minValue = Math.min(...values);
     let maxValue = Math.max(...values);
     const actualMinValue = minValue;
     const actualMaxValue = maxValue;
     if (minValue === maxValue) {
       const offset = actualMinValue === 0 ? 1 : Math.abs(actualMinValue) * 0.05 || 1;
-      minValue = minValue - offset;
-      maxValue = maxValue + offset;
+      minValue -= offset;
+      maxValue += offset;
     }
     const valueRange = maxValue - minValue || 1;
 
@@ -217,26 +267,78 @@ function HistoryChart({ data }: HistoryChartProps) {
 
     const baseline = paddingY + innerHeight;
 
-    const points = data.map((point) => {
-      const timeValue = new Date(point.date_effective).getTime();
+    const seriesData = normalizedSeries.map((entry) => {
+      const points = entry.data.map((point) => {
+        const x =
+          timestampRange === 0
+            ? paddingX + innerWidth / 2
+            : paddingX + ((point.timestamp - minTimestamp) / timestampRange) * innerWidth;
+        const y =
+          valueRange === 0
+            ? paddingY + innerHeight / 2
+            : paddingY + (1 - (point.price_per_base_unit_net - minValue) / valueRange) * innerHeight;
+        return {
+          x,
+          y,
+          timestamp: point.timestamp,
+          rawDate: point.date_effective,
+          value: point.price_per_base_unit_net,
+        };
+      });
+
+      const linePath = points
+        .map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`)
+        .join(" ");
+
+      return {
+        id: entry.id,
+        label: entry.label,
+        color: entry.color,
+        points,
+        linePath,
+        lastPoint: points[points.length - 1],
+        lastValue: entry.data[entry.data.length - 1].price_per_base_unit_net,
+        lastDate: entry.data[entry.data.length - 1].date_effective,
+      };
+    });
+
+    const firstSeries = seriesData[0];
+    const areaPath =
+      seriesData.length === 1
+        ? `M${firstSeries.points[0].x} ${baseline} ${firstSeries.points
+            .map((point) => `L${point.x} ${point.y}`)
+            .join(" ")} L${firstSeries.points[firstSeries.points.length - 1].x} ${baseline} Z`
+        : null;
+
+    const sortedUniqueTimestamps = Array.from(new Set(timestamps)).sort((a, b) => a - b);
+    const xTickCount = Math.min(4, sortedUniqueTimestamps.length - 1);
+    const xTickIndices =
+      sortedUniqueTimestamps.length === 1
+        ? [0]
+        : Array.from({ length: xTickCount + 1 }, (_, index) =>
+            Math.round((index / xTickCount) * (sortedUniqueTimestamps.length - 1)),
+          );
+    const timestampLabelMap = new Map<number, string>();
+    normalizedSeries.forEach((entry) => {
+      entry.data.forEach((point) => {
+        if (!timestampLabelMap.has(point.timestamp)) {
+          timestampLabelMap.set(point.timestamp, point.date_effective);
+        }
+      });
+    });
+
+    const xTicks = Array.from(new Set(xTickIndices)).map((idx) => {
+      const timestamp = sortedUniqueTimestamps[idx];
       const x =
         timestampRange === 0
           ? paddingX + innerWidth / 2
-          : paddingX + ((timeValue - minTimestamp) / timestampRange) * innerWidth;
-      const y =
-        valueRange === 0
-          ? paddingY + innerHeight / 2
-          : paddingY + (1 - (point.price_per_base_unit_net - minValue) / valueRange) * innerHeight;
-      return { x, y };
+          : paddingX + ((timestamp - minTimestamp) / timestampRange) * innerWidth;
+      const label = timestampLabelMap.get(timestamp);
+      return {
+        x,
+        label: label ? formatDate(label) : formatDate(new Date(timestamp).toISOString()),
+      };
     });
-
-    const linePath = points
-      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`)
-      .join(" ");
-
-    const areaPath = `M${points[0].x} ${baseline} ${points
-      .map((point) => `L${point.x} ${point.y}`)
-      .join(" ")} L${points[points.length - 1].x} ${baseline} Z`;
 
     const yTickCount = 4;
     const yTicks = Array.from({ length: yTickCount + 1 }, (_, index) => {
@@ -249,58 +351,35 @@ function HistoryChart({ data }: HistoryChartProps) {
       return { y, labelValue };
     });
 
-    const xTickCount = Math.min(4, data.length - 1);
-    const xTickIndices =
-      data.length === 1
-        ? [0]
-        : Array.from({ length: xTickCount + 1 }, (_, index) =>
-            Math.round((index / xTickCount) * (data.length - 1)),
-          );
-    const uniqueIndices = Array.from(new Set(xTickIndices));
-    const xTicks = uniqueIndices.map((idx) => {
-      const point = points[idx];
-      return { x: point.x, label: formatDate(data[idx].date_effective) };
-    });
-
     return {
       width,
       height,
       paddingX,
       paddingY,
-      linePath,
+      baseline,
+      seriesData,
       areaPath,
       yTicks,
       xTicks,
-      baseline,
-      points,
-      lastValue: data[data.length - 1].price_per_base_unit_net,
     };
-  }, [data]);
+  }, [series]);
 
   if (!chartData) return null;
 
-  const {
-    width,
-    height,
-    paddingX,
-    paddingY,
-    linePath,
-    areaPath,
-    yTicks,
-    xTicks,
-    baseline,
-    points,
-    lastValue,
-  } = chartData;
+  const { width, height, paddingX, paddingY, baseline, seriesData, areaPath, yTicks, xTicks } =
+    chartData;
 
-  const lastPoint = points[points.length - 1];
-  const lastValueLabel = formatCurrency(lastValue);
-  const labelWidth = Math.max(96, lastValueLabel.length * 7.2);
+  const singleSeries = seriesData.length === 1 ? seriesData[0] : null;
+  const lastValueLabel = singleSeries ? formatCurrency(singleSeries.lastValue) : null;
+  const labelWidth = lastValueLabel ? Math.max(96, lastValueLabel.length * 7.2) : 0;
   const labelHalfWidth = labelWidth / 2;
-  const labelX = lastPoint
-    ? Math.min(Math.max(lastPoint.x, paddingX + labelHalfWidth), width - paddingX - labelHalfWidth)
+  const labelX = singleSeries?.lastPoint
+    ? Math.min(
+        Math.max(singleSeries.lastPoint.x, paddingX + labelHalfWidth),
+        width - paddingX - labelHalfWidth,
+      )
     : 0;
-  const labelOffsetX = lastPoint ? labelX - lastPoint.x : 0;
+  const labelOffsetX = singleSeries?.lastPoint ? labelX - singleSeries.lastPoint.x : 0;
 
   return (
     <svg
@@ -341,15 +420,24 @@ function HistoryChart({ data }: HistoryChartProps) {
         strokeWidth={1}
         rx={16}
       />
-      <path d={areaPath} fill={`url(#${ids.areaGradientId})`} stroke="none" />
-      <path
-        d={linePath}
-        fill="none"
-        stroke={`url(#${ids.lineGradientId})`}
-        strokeWidth={3.2}
-        strokeLinecap="round"
-        filter={`url(#${ids.glowId})`}
-      />
+      {singleSeries && areaPath ? (
+        <path d={areaPath} fill={`url(#${ids.areaGradientId})`} stroke="none" />
+      ) : null}
+      {seriesData.map((serie) => (
+        <path
+          key={serie.id}
+          d={serie.linePath}
+          fill="none"
+          stroke={
+            singleSeries
+              ? `url(#${ids.lineGradientId})`
+              : serie.color || `url(#${ids.lineGradientId})`
+          }
+          strokeWidth={3.2}
+          strokeLinecap="round"
+          filter={singleSeries ? `url(#${ids.glowId})` : undefined}
+        />
+      ))}
       {yTicks.map((tick, index) => (
         <g key={`y-${index}`}>
           <line
@@ -392,11 +480,20 @@ function HistoryChart({ data }: HistoryChartProps) {
           </text>
         </g>
       ))}
-      {points.map((point, index) => (
-        <circle key={`point-${index}`} cx={point.x} cy={point.y} r={index === points.length - 1 ? 4 : 2.5} fill="rgb(37, 99, 235)" opacity={index === points.length - 1 ? 1 : 0.5} />
-      ))}
-      {lastPoint ? (
-        <g transform={`translate(${lastPoint.x}, ${lastPoint.y})`}>
+      {seriesData.map((serie) =>
+        serie.points.map((point, index) => (
+          <circle
+            key={`${serie.id}-point-${index}`}
+            cx={point.x}
+            cy={point.y}
+            r={index === serie.points.length - 1 && seriesData.length === 1 ? 4 : 2.5}
+            fill={serie.color}
+            opacity={index === serie.points.length - 1 && seriesData.length === 1 ? 1 : 0.7}
+          />
+        )),
+      )}
+      {singleSeries && singleSeries.lastPoint ? (
+        <g transform={`translate(${singleSeries.lastPoint.x}, ${singleSeries.lastPoint.y})`}>
           <circle r={6} fill="white" stroke="rgba(37, 99, 235, 0.4)" strokeWidth={1.5} />
           <circle r={4} fill="rgb(37, 99, 235)" />
           <g transform={`translate(${labelOffsetX}, -16)`}>
@@ -422,6 +519,14 @@ function HistoryChart({ data }: HistoryChartProps) {
           </g>
         </g>
       ) : null}
+      {!singleSeries &&
+        seriesData.map((serie) =>
+          serie.lastPoint ? (
+            <g key={`${serie.id}-marker`} transform={`translate(${serie.lastPoint.x}, ${serie.lastPoint.y})`}>
+              <circle r={5} fill="white" stroke={serie.color} strokeWidth={2} />
+            </g>
+          ) : null,
+        )}
     </svg>
   );
 }
@@ -435,7 +540,21 @@ export default function PriceChart() {
   const [message, setMessage] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortOption, setSortOption] = useState<SortOption>("name-asc");
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
+
+  const rangeStartDate = useMemo(() => {
+    if (!startDate) return null;
+    const parsed = new Date(`${startDate}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [startDate]);
+
+  const rangeEndDate = useMemo(() => {
+    if (!endDate) return null;
+    const parsed = new Date(`${endDate}T23:59:59.999`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }, [endDate]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -549,27 +668,50 @@ export default function PriceChart() {
   }, [products]);
 
   const enrichedProducts = useMemo<EnrichedProduct[]>(() => {
+    const startTimestamp = rangeStartDate ? rangeStartDate.getTime() : null;
+    const endTimestamp = rangeEndDate ? rangeEndDate.getTime() : null;
+
     return products.map((product) => {
-      const history = histories[product.id] || [];
-      const hasHistory = history.length > 0;
-      const firstValue = hasHistory ? history[0].price_per_base_unit_net : null;
-      const lastValue = hasHistory ? history[history.length - 1].price_per_base_unit_net : null;
+      const originalHistory = histories[product.id] || [];
+      const filteredHistory = originalHistory.filter((entry) => {
+        const timestamp = new Date(entry.date_effective).getTime();
+        if (!Number.isFinite(timestamp)) return false;
+        if (startTimestamp !== null && timestamp < startTimestamp) return false;
+        if (endTimestamp !== null && timestamp > endTimestamp) return false;
+        return true;
+      });
+
+      const hasFilteredHistory = filteredHistory.length > 0;
+      const firstValue = hasFilteredHistory ? filteredHistory[0].price_per_base_unit_net : null;
+      const lastValue = hasFilteredHistory
+        ? filteredHistory[filteredHistory.length - 1].price_per_base_unit_net
+        : null;
       const changeValue =
-        hasHistory && firstValue !== null && lastValue !== null ? lastValue - firstValue : null;
+        hasFilteredHistory && firstValue !== null && lastValue !== null ? lastValue - firstValue : null;
       const changePercent =
-        hasHistory && typeof firstValue === "number" && firstValue !== 0
+        hasFilteredHistory && typeof firstValue === "number" && firstValue !== 0
           ? ((lastValue! - firstValue) / firstValue) * 100
           : null;
+
+      const rangeStart = hasFilteredHistory ? filteredHistory[0].date_effective : null;
+      const rangeEnd = hasFilteredHistory
+        ? filteredHistory[filteredHistory.length - 1].date_effective
+        : null;
+
       return {
         ...product,
-        history,
+        history: filteredHistory,
+        originalHistory,
         changeValue,
         changePercent,
         firstValue,
         lastValue,
+        rangeStart,
+        rangeEnd,
+        hasHistoryOutsideRange: !hasFilteredHistory && originalHistory.length > 0,
       };
     });
-  }, [histories, products]);
+  }, [histories, products, rangeEndDate, rangeStartDate]);
 
   const filteredProducts = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
@@ -609,33 +751,88 @@ export default function PriceChart() {
 
   useEffect(() => {
     if (!visibleProducts.length) {
-      setSelectedProductId(null);
+      setSelectedProductIds([]);
       return;
     }
 
-    setSelectedProductId((current) => {
-      if (current && visibleProducts.some((product) => product.id === current)) {
-        return current;
+    setSelectedProductIds((current) => {
+      const visibleIds = new Set(visibleProducts.map((product) => product.id));
+      const preserved = current.filter((id) => visibleIds.has(id));
+      if (preserved.length) {
+        return preserved;
       }
-      return visibleProducts[0].id;
+      return [visibleProducts[0].id];
     });
   }, [visibleProducts]);
 
-  const selectedProduct = useMemo(() => {
-    if (!selectedProductId) return null;
-    return visibleProducts.find((product) => product.id === selectedProductId) ?? null;
-  }, [selectedProductId, visibleProducts]);
+  const selectionMeta = useMemo(() => {
+    const colorMap = new Map<number, string>();
+    selectedProductIds.forEach((id, index) => {
+      colorMap.set(id, SERIES_COLORS[index % SERIES_COLORS.length]);
+    });
 
-  const selectedChange = selectedProduct
-    ? describeChange(selectedProduct.changeValue, selectedProduct.changePercent)
-    : null;
+    const productMap = new Map(visibleProducts.map((product) => [product.id, product]));
+    const entries = selectedProductIds
+      .map((id) => {
+        const product = productMap.get(id);
+        if (!product) return null;
+        const color = colorMap.get(id) ?? SERIES_COLORS[0];
+        const change = describeChange(product.changeValue, product.changePercent);
+        const error = historyErrors[product.id];
+        const recentHistory = [...product.history].slice(-20).reverse();
+        return { product, color, change, error, recentHistory };
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          product: EnrichedProduct;
+          color: string;
+          change: ReturnType<typeof describeChange>;
+          error: string | undefined;
+          recentHistory: PricePoint[];
+        } => entry !== null,
+      );
 
-  const selectedError = selectedProduct ? historyErrors[selectedProduct.id] : undefined;
+    return { entries, colorMap };
+  }, [historyErrors, selectedProductIds, visibleProducts]);
 
-  const recentHistory = useMemo(() => {
-    if (!selectedProduct) return [] as PricePoint[];
-    return [...selectedProduct.history].slice(-20).reverse();
-  }, [selectedProduct]);
+  const { entries: selectedEntries, colorMap: selectionColors } = selectionMeta;
+
+  const comparisonSeries = useMemo(
+    () =>
+      selectedEntries.map((entry) => ({
+        id: entry.product.id,
+        label: entry.product.name,
+        color: entry.color,
+        data: entry.product.history,
+      })),
+    [selectedEntries],
+  );
+
+  const hasComparisonData = comparisonSeries.some((serie) => serie.data.length > 0);
+
+  const appliedRangeLabel = useMemo(() => {
+    if (!startDate && !endDate) return null;
+    const startLabel = startDate ? formatDate(`${startDate}T00:00:00`) : "Beginn";
+    const endLabel = endDate ? formatDate(`${endDate}T00:00:00`) : "Heute";
+    return `${startLabel} – ${endLabel}`;
+  }, [endDate, startDate]);
+
+  const handleProductToggle = (productId: number, shouldSelect: boolean) => {
+    setSelectedProductIds((current) => {
+      const exists = current.includes(productId);
+      if (shouldSelect) {
+        if (exists) return current;
+        return [...current, productId];
+      }
+      if (!exists) return current;
+      if (current.length === 1) {
+        return current;
+      }
+      return current.filter((id) => id !== productId);
+    });
+  };
 
   return (
     <div className="page">
@@ -686,6 +883,51 @@ export default function PriceChart() {
                   <option value="change-asc">Größte Preissenkung</option>
                 </select>
               </label>
+              <div className="price-controls__field price-controls__field--range">
+                <span className="price-controls__label">Zeitraum</span>
+                <div className="price-controls__range-inputs">
+                  <input
+                    type="date"
+                    className="price-controls__input"
+                    value={startDate}
+                    max={endDate || undefined}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setStartDate(value);
+                      if (endDate && value && value > endDate) {
+                        setEndDate("");
+                      }
+                    }}
+                  />
+                  <span className="price-controls__range-separator">bis</span>
+                  <input
+                    type="date"
+                    className="price-controls__input"
+                    value={endDate}
+                    min={startDate || undefined}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (startDate && value && value < startDate) {
+                        setEndDate(startDate);
+                        return;
+                      }
+                      setEndDate(value);
+                    }}
+                  />
+                </div>
+                {(startDate || endDate) && (
+                  <button
+                    type="button"
+                    className="price-controls__range-reset"
+                    onClick={() => {
+                      setStartDate("");
+                      setEndDate("");
+                    }}
+                  >
+                    Zurücksetzen
+                  </button>
+                )}
+              </div>
             </div>
             <div className="price-list-wrapper">
               {visibleProducts.length ? (
@@ -695,57 +937,94 @@ export default function PriceChart() {
                       product.changeValue,
                       product.changePercent,
                     );
-                    const isActive = product.id === selectedProductId;
+                    const isSelected = selectedProductIds.includes(product.id);
+                    const selectionColor = selectionColors.get(product.id);
                     const error = historyErrors[product.id];
                     const hasHistory = product.history.length > 0;
+                    const showLoading = !hasHistory && !error && isLoadingHistories;
+                    const emptyLabel = product.hasHistoryOutsideRange
+                      ? "Keine Daten im Zeitraum"
+                      : "Keine Preisdaten";
 
                     return (
                       <li key={product.id}>
-                        <button
-                          type="button"
+                        <label
                           className={`price-list__item ${
-                            isActive ? "price-list__item--active" : ""
+                            isSelected ? "price-list__item--active" : ""
                           }`}
-                          onClick={() => setSelectedProductId(product.id)}
                         >
-                          <div className="price-list__heading">
-                            <span className="price-list__name">{product.name}</span>
-                            {changeDescriptor && (
-                              <span
-                                className={`price-list__change ${
-                                  changeDescriptor.direction > 0
-                                    ? "price-list__change--up"
-                                    : changeDescriptor.direction < 0
-                                    ? "price-list__change--down"
-                                    : ""
-                                }`}
+                          <input
+                            type="checkbox"
+                            className="price-list__checkbox"
+                            checked={isSelected}
+                            onChange={(event) =>
+                              handleProductToggle(product.id, event.target.checked)
+                            }
+                          />
+                          <div className="price-list__content">
+                            <div className="price-list__heading">
+                              <div className="price-list__title-group">
+                                <span
+                                  className={`price-list__indicator ${
+                                    isSelected ? "price-list__indicator--visible" : ""
+                                  }`}
+                                  style={
+                                    selectionColor
+                                      ? { backgroundColor: selectionColor }
+                                      : undefined
+                                  }
+                                  aria-hidden="true"
+                                />
+                                <span className="price-list__name">{product.name}</span>
+                              </div>
+                              {changeDescriptor && (
+                                <span
+                                  className={`price-list__change ${
+                                    changeDescriptor.direction > 0
+                                      ? "price-list__change--up"
+                                      : changeDescriptor.direction < 0
+                                      ? "price-list__change--down"
+                                      : ""
+                                  }`}
+                                >
+                                  {changeDescriptor.currencyLabel} ({changeDescriptor.percentLabel})
+                                </span>
+                              )}
+                            </div>
+                            <div className="price-list__meta">
+                              <span className="price-list__sku">#{product.id}</span>
+                              <span className="price-list__sku">{product.sku}</span>
+                              {product.lastValue !== null && (
+                                <strong className="price-list__price">
+                                  {formatCurrency(product.lastValue)}
+                                </strong>
+                              )}
+                              <button
+                                type="button"
+                                className="price-list__solo"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setSelectedProductIds([product.id]);
+                                }}
                               >
-                                {changeDescriptor.currencyLabel} ({changeDescriptor.percentLabel})
-                              </span>
-                            )}
+                                Nur dieses
+                              </button>
+                            </div>
+                            <div className="price-list__sparkline">
+                              {hasHistory && <Sparkline data={product.history} />}
+                              {!hasHistory && error && (
+                                <span className="price-list__state">{error}</span>
+                              )}
+                              {!hasHistory && !error && showLoading && (
+                                <span className="price-list__state">Lade Preisdaten…</span>
+                              )}
+                              {!hasHistory && !error && !showLoading && (
+                                <span className="price-list__state">{emptyLabel}</span>
+                              )}
+                            </div>
                           </div>
-                          <div className="price-list__meta">
-                            <span className="price-list__sku">#{product.id}</span>
-                            <span className="price-list__sku">{product.sku}</span>
-                            {product.lastValue !== null && (
-                              <strong className="price-list__price">
-                                {formatCurrency(product.lastValue)}
-                              </strong>
-                            )}
-                          </div>
-                          <div className="price-list__sparkline">
-                            {hasHistory && <Sparkline data={product.history} />}
-                            {!hasHistory && error && (
-                              <span className="price-list__state">{error}</span>
-                            )}
-                            {!hasHistory && !error && isLoadingHistories && (
-                              <span className="price-list__state">Lade Preisdaten…</span>
-                            )}
-                            {!hasHistory && !error && !isLoadingHistories && (
-                              <span className="price-list__state">Keine Preisdaten</span>
-                            )}
-                          </div>
-                        </button>
+                        </label>
                       </li>
                     );
                   })}
@@ -760,100 +1039,158 @@ export default function PriceChart() {
             </div>
           </aside>
           <div className="price-detail">
-            {selectedProduct ? (
+            {selectedEntries.length ? (
               <div className="price-detail__content">
                 <header className="price-detail__header">
                   <div>
-                    <h3>{selectedProduct.name}</h3>
+                    <h3>Ausgewählte Produkte</h3>
                     <p>
-                      Produkt #{selectedProduct.id} · {selectedProduct.sku}
+                      {selectedEntries.length === 1
+                        ? `Produkt #${selectedEntries[0].product.id} · ${selectedEntries[0].product.sku}`
+                        : `${selectedEntries.length} Produkte ausgewählt`}
                     </p>
                   </div>
-                  {selectedProduct.lastValue !== null && (
-                    <div className="price-detail__value">
-                      <span className="price-detail__value-label">Letzter Preis</span>
-                      <strong>{formatCurrency(selectedProduct.lastValue)}</strong>
+                  <div className="price-detail__header-meta">
+                    <div>
+                      <span className="price-detail__meta-label">Auswahl</span>
+                      <strong>{selectedEntries.length}</strong>
                     </div>
-                  )}
+                    {appliedRangeLabel && (
+                      <div>
+                        <span className="price-detail__meta-label">Aktiver Zeitraum</span>
+                        <strong>{appliedRangeLabel}</strong>
+                      </div>
+                    )}
+                  </div>
                 </header>
                 <div className="price-detail__chart-area">
-                  {selectedProduct.history.length > 0 && <HistoryChart data={selectedProduct.history} />}
-                  {selectedProduct.history.length === 0 && (
+                  {hasComparisonData ? (
+                    <HistoryChart series={comparisonSeries} />
+                  ) : (
                     <div className="price-detail__empty">
-                      {selectedError
-                        ? selectedError
-                        : isLoadingHistories
+                      {isLoadingHistories
                         ? "Preisdaten werden geladen…"
-                        : "Für dieses Produkt liegen noch keine Preisdaten vor."}
+                        : "Im gewählten Zeitraum liegen keine Preisdaten vor."}
                     </div>
                   )}
                 </div>
-                <div className="price-detail__meta">
-                  <div>
-                    <span className="price-detail__meta-label">Zeitraum</span>
-                    {selectedProduct.history.length > 0 ? (
-                      <strong>
-                        {`${formatDate(selectedProduct.history[0].date_effective)} – ${formatDate(
-                          selectedProduct.history[selectedProduct.history.length - 1].date_effective,
-                        )}`}
-                      </strong>
-                    ) : (
-                      <strong>–</strong>
-                    )}
-                  </div>
-                  <div>
-                    <span className="price-detail__meta-label">Erster Preis</span>
-                    <strong>
-                      {selectedProduct.firstValue !== null
-                        ? formatCurrency(selectedProduct.firstValue)
-                        : "–"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span className="price-detail__meta-label">Veränderung</span>
-                    {selectedChange ? (
-                      <strong
-                        className={`price-detail__change ${
-                          selectedChange.direction > 0
-                            ? "price-detail__change--up"
-                            : selectedChange.direction < 0
-                            ? "price-detail__change--down"
-                            : ""
-                        }`}
-                      >
-                        {selectedChange.currencyLabel} ({selectedChange.percentLabel})
-                      </strong>
-                    ) : (
-                      <strong>–</strong>
-                    )}
-                  </div>
-                </div>
-                {selectedProduct.history.length > 0 && (
-                  <div className="price-detail__history">
-                    <h4>Historische Preise</h4>
-                    <div className="price-detail__history-table-wrapper">
-                      <table className="price-detail__history-table">
-                        <thead>
-                          <tr>
-                            <th>Datum</th>
-                            <th>Preis</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recentHistory.map((entry, index) => (
-                            <tr key={`${entry.date_effective}-${index}`}>
-                              <td>{formatDate(entry.date_effective)}</td>
-                              <td>{formatCurrency(entry.price_per_base_unit_net)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                {hasComparisonData && (
+                  <div className="price-detail__legend">
+                    {selectedEntries.map((entry) => (
+                      <div key={entry.product.id} className="price-detail__legend-item">
+                        <span
+                          className="price-detail__legend-dot"
+                          style={{ backgroundColor: entry.color }}
+                          aria-hidden="true"
+                        />
+                        <span className="price-detail__legend-name">{entry.product.name}</span>
+                        {entry.product.lastValue !== null && (
+                          <span className="price-detail__legend-value">
+                            {formatCurrency(entry.product.lastValue)}
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
+                <div className="price-detail__comparison">
+                  {selectedEntries.map((entry) => {
+                    const { product, change, color, error: productError, recentHistory } = entry;
+                    const timeframeLabel =
+                      product.history.length > 0 && product.rangeStart && product.rangeEnd
+                        ? `${formatDate(product.rangeStart)} – ${formatDate(product.rangeEnd)}`
+                        : "–";
+                    const changeClass =
+                      change?.direction === 1
+                        ? "price-detail__change--up"
+                        : change?.direction === -1
+                        ? "price-detail__change--down"
+                        : "";
+                    const isHistoryEmpty = product.history.length === 0;
+
+                    return (
+                      <article key={product.id} className="price-detail__card">
+                        <header className="price-detail__card-header">
+                          <span
+                            className="price-detail__card-dot"
+                            style={{ backgroundColor: color }}
+                            aria-hidden="true"
+                          />
+                          <div className="price-detail__card-title">
+                            <h3>{product.name}</h3>
+                            <p>#{product.id} · {product.sku}</p>
+                          </div>
+                          {product.lastValue !== null && (
+                            <div className="price-detail__value">
+                              <span className="price-detail__value-label">Letzter Preis</span>
+                              <strong>{formatCurrency(product.lastValue)}</strong>
+                            </div>
+                          )}
+                        </header>
+                        <div className="price-detail__card-meta">
+                          <div>
+                            <span className="price-detail__meta-label">Zeitraum</span>
+                            <strong>{timeframeLabel}</strong>
+                          </div>
+                          <div>
+                            <span className="price-detail__meta-label">Erster Preis</span>
+                            <strong>
+                              {product.firstValue !== null
+                                ? formatCurrency(product.firstValue)
+                                : "–"}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="price-detail__meta-label">Veränderung</span>
+                            {change ? (
+                              <strong className={`price-detail__change ${changeClass}`}>
+                                {change.currencyLabel} ({change.percentLabel})
+                              </strong>
+                            ) : (
+                              <strong>–</strong>
+                            )}
+                          </div>
+                        </div>
+                        {isHistoryEmpty ? (
+                          <div className="price-detail__card-empty">
+                            {productError
+                              ? productError
+                              : isLoadingHistories
+                              ? "Preisdaten werden geladen…"
+                              : product.hasHistoryOutsideRange
+                              ? "Keine Preisdaten im ausgewählten Zeitraum."
+                              : "Für dieses Produkt liegen noch keine Preisdaten vor."}
+                          </div>
+                        ) : (
+                          <div className="price-detail__history">
+                            <h4>Historische Preise</h4>
+                            <div className="price-detail__history-table-wrapper">
+                              <table className="price-detail__history-table">
+                                <thead>
+                                  <tr>
+                                    <th>Datum</th>
+                                    <th>Preis</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {recentHistory.map((entryItem, index) => (
+                                    <tr key={`${entryItem.date_effective}-${index}`}>
+                                      <td>{formatDate(entryItem.date_effective)}</td>
+                                      <td>{formatCurrency(entryItem.price_per_base_unit_net)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
-              <div className="price-detail__empty">Wählen Sie links ein Produkt aus.</div>
+              <div className="price-detail__empty">Wählen Sie links mindestens ein Produkt aus.</div>
             )}
           </div>
         </div>
