@@ -1,4 +1,12 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  type MouseEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FunctionsFetchError } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
@@ -211,6 +219,7 @@ type HoveredPoint = {
 function HistoryChart({ series }: HistoryChartProps) {
   const idBase = useId();
   const [hoveredPoint, setHoveredPoint] = useState<HoveredPoint | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     setHoveredPoint(null);
@@ -407,6 +416,72 @@ function HistoryChart({ series }: HistoryChartProps) {
     : 0;
   const labelOffsetX = singleSeries?.lastPoint ? labelX - singleSeries.lastPoint.x : 0;
 
+  const handlePointerMove = useCallback(
+    (event: MouseEvent<SVGSVGElement>) => {
+      if (!svgRef.current) return;
+
+      const bounds = svgRef.current.getBoundingClientRect();
+      const pointerX = event.clientX - bounds.left;
+      const pointerY = event.clientY - bounds.top;
+
+      if (
+        pointerX < paddingX ||
+        pointerX > width - paddingX ||
+        pointerY < paddingY ||
+        pointerY > baseline
+      ) {
+        setHoveredPoint((current) => (current ? null : current));
+        return;
+      }
+
+      let closestPoint: {
+        serie: (typeof seriesData)[number];
+        point: (typeof seriesData)[number]["points"][number];
+        distance: number;
+      } | null = null;
+
+      seriesData.forEach((serie) => {
+        serie.points.forEach((point) => {
+          const dx = point.x - pointerX;
+          const dy = point.y - pointerY;
+          const distance = dx * dx + dy * dy;
+
+          if (!closestPoint || distance < closestPoint.distance) {
+            closestPoint = { serie, point, distance };
+          }
+        });
+      });
+
+      if (!closestPoint) {
+        setHoveredPoint((current) => (current ? null : current));
+        return;
+      }
+
+      const nextHovered: HoveredPoint = {
+        seriesId: closestPoint.serie.id,
+        label: closestPoint.serie.label,
+        x: closestPoint.point.x,
+        y: closestPoint.point.y,
+        value: closestPoint.point.value,
+        date: closestPoint.point.rawDate,
+        color: closestPoint.serie.color || "rgb(37, 99, 235)",
+      };
+
+      setHoveredPoint((current) => {
+        if (
+          current &&
+          current.seriesId === nextHovered.seriesId &&
+          current.x === nextHovered.x &&
+          current.y === nextHovered.y
+        ) {
+          return current;
+        }
+        return nextHovered;
+      });
+    },
+    [baseline, paddingX, paddingY, seriesData, width],
+  );
+
   return (
     <svg
       className="price-detail__chart"
@@ -414,6 +489,8 @@ function HistoryChart({ series }: HistoryChartProps) {
       height="100%"
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
+      ref={svgRef}
+      onMouseMove={handlePointerMove}
       onMouseLeave={() => setHoveredPoint(null)}
     >
       <defs>
