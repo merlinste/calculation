@@ -149,7 +149,7 @@ export default function DBTable() {
     setInvoicesError(null);
     const { data, error } = await supabase
       .from("purchase_invoices")
-      .select("id, supplier_id, invoice_no, invoice_date, currency, net_amount, tax_amount, gross_amount, updated_at, suppliers(name)")
+      .select("id, supplier_id, invoice_no, invoice_date, currency, net_amount, tax_amount, gross_amount, suppliers(name)")
       .order("invoice_date", { ascending: false })
       .order("id", { ascending: false });
 
@@ -167,7 +167,6 @@ export default function DBTable() {
         netAmount: Number(item.net_amount) || 0,
         taxAmount: Number(item.tax_amount) || 0,
         grossAmount: Number(item.gross_amount) || 0,
-        updatedAt: (item.updated_at as string | undefined) ?? "",
       }));
       setInvoices(list);
     }
